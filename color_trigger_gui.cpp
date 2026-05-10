@@ -222,10 +222,10 @@ static void init_theme() {
     g_panel_brush = CreateSolidBrush(COLOR_PANEL);
     g_input_brush = CreateSolidBrush(COLOR_INPUT);
     g_label_brush = CreateSolidBrush(COLOR_BG);
-    g_font = make_font(15, FW_NORMAL);
-    g_font_bold = make_font(15, FW_SEMIBOLD);
-    g_font_title = make_font(24, FW_BOLD);
-    g_font_small = make_font(13, FW_NORMAL);
+    g_font = make_font(13, FW_NORMAL);
+    g_font_bold = make_font(13, FW_SEMIBOLD);
+    g_font_title = make_font(18, FW_BOLD);
+    g_font_small = make_font(12, FW_NORMAL);
 }
 
 static HICON create_app_icon() {
@@ -798,7 +798,7 @@ static void refresh_action_controls() {
 static void set_running_ui(bool running) {
     EnableWindow(GetDlgItem(g_main, IDC_START), running ? FALSE : TRUE);
     EnableWindow(GetDlgItem(g_main, IDC_STOP), running ? TRUE : FALSE);
-    set_text(g_status, running ? L"ON - F8 toggles, F9 stops" : L"OFF - click START or press F8");
+    set_text(g_status, running ? L"ON - F8 start/stop    F9 stop" : L"OFF - F8 start/stop    F9 stop");
 }
 
 static void apply_config() {
@@ -857,11 +857,8 @@ static HWND add_button(HWND parent, int id, const wchar_t* text, int x, int y, i
 }
 
 static void create_controls(HWND hwnd) {
-    g_status = add_label(hwnd, L"OFF - press F8", 530, 28, 130, 24);
-    apply_font(g_status, g_font_small);
-
-    add_label(hwnd, L"Color to watch", 52, 146, 135, 20);
-    g_mode = add_combo(hwnd, IDC_MODE, 52, 170, 240, 160);
+    add_label(hwnd, L"Color", 42, 68, 90, 18);
+    g_mode = add_combo(hwnd, IDC_MODE, 42, 88, 215, 150);
     combo_add(g_mode, L"Yellow outline");
     combo_add(g_mode, L"Red outline");
     combo_add(g_mode, L"Purple outline");
@@ -869,55 +866,56 @@ static void create_controls(HWND hwnd) {
     SendMessageW(g_mode, CB_SETCURSEL, 0, 0);
 
     g_preview = CreateWindowExW(WS_EX_CLIENTEDGE, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
-                                310, 170, 52, 28, hwnd, reinterpret_cast<HMENU>(IDC_PREVIEW),
+                                276, 88, 46, 24, hwnd, reinterpret_cast<HMENU>(IDC_PREVIEW),
                                 GetModuleHandleW(nullptr), nullptr);
 
-    add_label(hwnd, L"Key", 498, 146, 70, 20);
-    g_key = add_edit(hwnd, IDC_KEY, 498, 170, 120, 28, L"F");
+    add_label(hwnd, L"Key", 442, 68, 70, 18);
+    g_key = add_edit(hwnd, IDC_KEY, 442, 88, 110, 26, L"F");
 
-    add_label(hwnd, L"Action", 52, 218, 120, 20);
-    g_action = add_combo(hwnd, IDC_ACTION, 52, 242, 240, 110);
+    add_label(hwnd, L"Action", 42, 126, 100, 18);
+    g_action = add_combo(hwnd, IDC_ACTION, 42, 146, 215, 105);
     combo_add(g_action, L"Tap repeatedly");
     combo_add(g_action, L"Hold while visible");
     SendMessageW(g_action, CB_SETCURSEL, 0, 0);
 
-    add_label(hwnd, L"Reaction", 498, 218, 100, 20);
-    g_reaction_ms = add_edit(hwnd, IDC_REACTION_MS, 498, 242, 76, 28, L"0");
-    add_label(hwnd, L"ms", 586, 247, 35, 20);
+    add_label(hwnd, L"Reaction", 442, 126, 100, 18);
+    g_reaction_ms = add_edit(hwnd, IDC_REACTION_MS, 442, 146, 68, 26, L"0");
+    add_label(hwnd, L"ms", 520, 151, 35, 18);
 
-    add_label(hwnd, L"Tap interval", 52, 290, 110, 20);
-    g_press_interval_ms = add_edit(hwnd, IDC_PRESS_INTERVAL_MS, 52, 314, 86, 28, L"25");
-    add_label(hwnd, L"ms", 150, 319, 35, 20);
+    add_label(hwnd, L"Tap interval", 42, 184, 95, 18);
+    g_press_interval_ms = add_edit(hwnd, IDC_PRESS_INTERVAL_MS, 42, 204, 76, 26, L"25");
+    add_label(hwnd, L"ms", 128, 209, 35, 18);
 
-    add_label(hwnd, L"Detection", 218, 290, 120, 20);
-    g_sensitivity = add_combo(hwnd, IDC_SENSITIVITY, 218, 314, 145, 120);
+    add_label(hwnd, L"Detection", 198, 184, 95, 18);
+    g_sensitivity = add_combo(hwnd, IDC_SENSITIVITY, 198, 204, 125, 110);
     combo_add(g_sensitivity, L"Strict");
     combo_add(g_sensitivity, L"Normal");
     combo_add(g_sensitivity, L"Loose");
     SendMessageW(g_sensitivity, CB_SETCURSEL, 1, 0);
 
-    add_label(hwnd, L"Scan box", 498, 290, 100, 20);
-    g_box_w = add_edit(hwnd, IDC_BOX_W, 498, 314, 58, 28, L"40");
-    add_label(hwnd, L"x", 566, 319, 16, 20);
-    g_box_h = add_edit(hwnd, IDC_BOX_H, 586, 314, 58, 28, L"40");
+    add_label(hwnd, L"Scan box", 442, 184, 100, 18);
+    g_box_w = add_edit(hwnd, IDC_BOX_W, 442, 204, 54, 26, L"40");
+    add_label(hwnd, L"x", 504, 209, 16, 18);
+    g_box_h = add_edit(hwnd, IDC_BOX_H, 524, 204, 54, 26, L"40");
 
-    add_label(hwnd, L"Custom RGB", 52, 370, 120, 20);
-    g_custom_r = add_edit(hwnd, IDC_CUSTOM_R, 158, 366, 52, 28, L"255");
-    g_custom_g = add_edit(hwnd, IDC_CUSTOM_G, 220, 366, 52, 28, L"230");
-    g_custom_b = add_edit(hwnd, IDC_CUSTOM_B, 282, 366, 52, 28, L"0");
-    g_pick_color = add_button(hwnd, IDC_PICK_COLOR, L"PICK", 350, 364, 82, 32);
+    add_label(hwnd, L"Custom RGB", 42, 246, 100, 18);
+    g_custom_r = add_edit(hwnd, IDC_CUSTOM_R, 148, 242, 48, 26, L"255");
+    g_custom_g = add_edit(hwnd, IDC_CUSTOM_G, 206, 242, 48, 26, L"230");
+    g_custom_b = add_edit(hwnd, IDC_CUSTOM_B, 264, 242, 48, 26, L"0");
+    g_pick_color = add_button(hwnd, IDC_PICK_COLOR, L"PICK", 326, 240, 72, 30);
 
-    g_config_name = add_edit(hwnd, IDC_CONFIG_NAME, 52, 424, 130, 28, L"default");
-    g_config_list = add_combo(hwnd, IDC_CONFIG_LIST, 194, 424, 170, 140);
-    add_button(hwnd, IDC_SAVE_CONFIG, L"SAVE", 378, 422, 70, 32);
-    add_button(hwnd, IDC_LOAD_CONFIG, L"LOAD", 462, 422, 70, 32);
-    add_button(hwnd, IDC_DELETE_CONFIG, L"DEL", 546, 422, 70, 32);
+    g_config_name = add_edit(hwnd, IDC_CONFIG_NAME, 152, 302, 120, 26, L"default");
+    g_config_list = add_combo(hwnd, IDC_CONFIG_LIST, 284, 302, 145, 120);
+    add_button(hwnd, IDC_SAVE_CONFIG, L"SAVE", 442, 300, 58, 30);
+    add_button(hwnd, IDC_LOAD_CONFIG, L"LOAD", 510, 300, 58, 30);
+    add_button(hwnd, IDC_DELETE_CONFIG, L"DEL", 578, 300, 48, 30);
 
-    add_button(hwnd, IDC_START, L"START", 90, 478, 230, 42);
-    add_button(hwnd, IDC_STOP, L"STOP", 380, 478, 230, 42);
+    add_button(hwnd, IDC_START, L"START", 70, 360, 220, 40);
+    add_button(hwnd, IDC_STOP, L"STOP", 370, 360, 220, 40);
     EnableWindow(GetDlgItem(hwnd, IDC_STOP), FALSE);
 
-    add_label(hwnd, L"F8 start/stop    F9 stop", 246, 532, 250, 22);
+    g_status = add_label(hwnd, L"OFF - F8 start/stop    F9 stop", 216, 420, 280, 20);
+    apply_font(g_status, g_font_small);
     refresh_custom_controls();
     refresh_action_controls();
     load_saved_configs();
@@ -982,26 +980,18 @@ static void paint_window(HWND hwnd) {
     GetClientRect(hwnd, &client);
     FillRect(dc, &client, g_bg_brush);
 
-    RECT brand{28, 20, 180, 54};
-    draw_text(dc, L"minhan", brand, g_font_title, COLOR_TEXT, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    RECT dot{114, 20, 215, 54};
-    draw_text(dc, L".time", dot, g_font_title, COLOR_ACCENT, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-
-    RECT subtitle{30, 56, 220, 78};
-    draw_text(dc, L"screen color control", subtitle, g_font_small, COLOR_MUTED, DT_LEFT | DT_SINGLELINE);
-
-    RECT panel_left{28, 94, 454, 402};
-    RECT panel_right{474, 94, 672, 402};
-    RECT panel_config{28, 414, 672, 466};
+    RECT panel_left{20, 20, 408, 278};
+    RECT panel_right{420, 20, 640, 278};
+    RECT panel_config{20, 288, 640, 338};
     fill_round(dc, panel_left, 10, COLOR_PANEL);
     fill_round(dc, panel_right, 10, RGB(22, 23, 29));
     fill_round(dc, panel_config, 10, RGB(19, 20, 26));
 
-    RECT panel_title{52, 112, 300, 136};
+    RECT panel_title{42, 36, 280, 56};
     draw_text(dc, L"Trigger settings", panel_title, g_font_bold, COLOR_TEXT, DT_LEFT | DT_SINGLELINE);
-    RECT panel_title2{498, 112, 650, 136};
+    RECT panel_title2{442, 36, 600, 56};
     draw_text(dc, L"Key + scan", panel_title2, g_font_bold, COLOR_TEXT, DT_LEFT | DT_SINGLELINE);
-    RECT panel_title3{52, 398, 220, 422};
+    RECT panel_title3{42, 302, 180, 322};
     draw_text(dc, L"Saved configs", panel_title3, g_font_bold, COLOR_TEXT, DT_LEFT | DT_SINGLELINE);
 
     EndPaint(hwnd, &ps);
@@ -1171,7 +1161,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_cmd) {
 
     g_main = CreateWindowExW(0, class_name, L"minhan-time",
                              WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                             CW_USEDEFAULT, CW_USEDEFAULT, 700, 585,
+                             CW_USEDEFAULT, CW_USEDEFAULT, 665, 480,
                              nullptr, nullptr, instance, nullptr);
     if (!g_main) return 1;
 
