@@ -1,19 +1,21 @@
-# ColorBot
+# minhan-time
 
-ColorBot is a simple Windows color-trigger keyboard utility.
+`minhan-time` is a Windows color-trigger keyboard utility.
 
-It watches a small box in the center of the screen. When it sees the selected
-color range, it presses the key you choose.
+It watches a configurable box centered on the screen. When the selected color
+range appears, it can either tap a key repeatedly or hold the key while the
+color stays visible.
 
 ## Download
 
 For Windows, use:
 
-- `colorbot.exe`
-- or download and unzip `colorbot_windows.zip`
+- `minhan-time.exe`
+- or download and unzip `minhan-time_windows.zip`
 
 ## Features
 
+- Dark, cleaned-up GUI
 - Yellow, red, purple, and custom color modes
 - Configurable key to press
 - Tap repeatedly or hold the key while the color is visible
@@ -26,7 +28,7 @@ For Windows, use:
 
 ## Use
 
-1. Run `colorbot.exe` on Windows.
+1. Run `minhan-time.exe` on Windows.
 2. Pick a color mode.
 3. Pick the key to press.
 4. Pick `Tap repeatedly` or `Hold while visible`.
@@ -44,5 +46,5 @@ cl /std:c++20 /O2 /EHsc /DUNICODE /D_UNICODE color_trigger_gui.cpp user32.lib gd
 From macOS with `mingw-w64`:
 
 ```bash
-x86_64-w64-mingw32-g++ -std=c++20 -O2 -municode -mwindows -static -static-libgcc -static-libstdc++ color_trigger_gui.cpp -o colorbot.exe -luser32 -lgdi32 -lcomdlg32
+x86_64-w64-mingw32-g++ -std=c++20 -O2 -municode -mwindows -static -static-libgcc -static-libstdc++ color_trigger_gui.cpp -o minhan-time.exe -luser32 -lgdi32 -lcomdlg32
 ```

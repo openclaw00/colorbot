@@ -1,11 +1,11 @@
 /*
-  ColorBot - simple color-trigger keyboard utility for Windows 10/11.
+  minhan-time - simple color-trigger keyboard utility for Windows 10/11.
 
   Build on Windows:
     cl /std:c++20 /O2 /EHsc /DUNICODE /D_UNICODE color_trigger_gui.cpp user32.lib gdi32.lib comdlg32.lib /link /SUBSYSTEM:WINDOWS
 
   Build from macOS with mingw-w64:
-    x86_64-w64-mingw32-g++ -std=c++20 -O2 -municode -mwindows -static -static-libgcc -static-libstdc++ color_trigger_gui.cpp -o colorbot.exe -luser32 -lgdi32 -lcomdlg32
+    x86_64-w64-mingw32-g++ -std=c++20 -O2 -municode -mwindows -static -static-libgcc -static-libstdc++ color_trigger_gui.cpp -o minhan-time.exe -luser32 -lgdi32 -lcomdlg32
 
   Use:
     1. Pick a color mode: Yellow, Red, Purple, or Custom.
@@ -151,6 +151,24 @@ static HWND g_pick_color = nullptr;
 static HWND g_preview = nullptr;
 static HWND g_status = nullptr;
 static HBRUSH g_preview_brush = nullptr;
+static HBRUSH g_bg_brush = nullptr;
+static HBRUSH g_panel_brush = nullptr;
+static HBRUSH g_input_brush = nullptr;
+static HBRUSH g_label_brush = nullptr;
+static HFONT g_font = nullptr;
+static HFONT g_font_bold = nullptr;
+static HFONT g_font_title = nullptr;
+static HFONT g_font_small = nullptr;
+static HICON g_app_icon = nullptr;
+
+static constexpr COLORREF COLOR_BG = RGB(15, 16, 20);
+static constexpr COLORREF COLOR_PANEL = RGB(24, 25, 31);
+static constexpr COLORREF COLOR_INPUT = RGB(45, 46, 54);
+static constexpr COLORREF COLOR_TEXT = RGB(238, 235, 244);
+static constexpr COLORREF COLOR_MUTED = RGB(160, 154, 171);
+static constexpr COLORREF COLOR_ACCENT = RGB(188, 80, 255);
+static constexpr COLORREF COLOR_ACCENT_2 = RGB(64, 189, 239);
+static constexpr COLORREF COLOR_STOP = RGB(62, 58, 68);
 
 static std::mutex g_config_mutex;
 static Config g_config;
@@ -169,6 +187,84 @@ static void set_int(HWND hwnd, int value) {
     wchar_t buf[32]{};
     wsprintfW(buf, L"%d", value);
     SetWindowTextW(hwnd, buf);
+}
+
+static HFONT make_font(int size, int weight) {
+    return CreateFontW(-size, 0, 0, 0, weight, FALSE, FALSE, FALSE, DEFAULT_CHARSET,
+                       OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY,
+                       DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+}
+
+static void apply_font(HWND hwnd, HFONT font) {
+    SendMessageW(hwnd, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+}
+
+static void init_theme() {
+    g_bg_brush = CreateSolidBrush(COLOR_BG);
+    g_panel_brush = CreateSolidBrush(COLOR_PANEL);
+    g_input_brush = CreateSolidBrush(COLOR_INPUT);
+    g_label_brush = CreateSolidBrush(COLOR_BG);
+    g_font = make_font(18, FW_NORMAL);
+    g_font_bold = make_font(18, FW_SEMIBOLD);
+    g_font_title = make_font(26, FW_BOLD);
+    g_font_small = make_font(15, FW_NORMAL);
+}
+
+static HICON create_app_icon() {
+    HDC screen = GetDC(nullptr);
+    HDC dc = CreateCompatibleDC(screen);
+
+    BITMAPINFO bmi{};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = 32;
+    bmi.bmiHeader.biHeight = -32;
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    uint32_t* pixels = nullptr;
+    HBITMAP color = CreateDIBSection(dc, &bmi, DIB_RGB_COLORS, reinterpret_cast<void**>(&pixels), nullptr, 0);
+    HGDIOBJ old = SelectObject(dc, color);
+
+    for (int y = 0; y < 32; ++y) {
+        for (int x = 0; x < 32; ++x) {
+            const int dx = x - 16;
+            const int dy = y - 16;
+            const bool inside = dx * dx + dy * dy <= 14 * 14;
+            if (!inside) {
+                pixels[y * 32 + x] = 0;
+                continue;
+            }
+            const uint8_t r = static_cast<uint8_t>(120 + x * 4);
+            const uint8_t g = static_cast<uint8_t>(46 + y * 3);
+            const uint8_t b = static_cast<uint8_t>(210 + (31 - x) * 1);
+            pixels[y * 32 + x] = 0xFF000000u | (r << 16) | (g << 8) | b;
+        }
+    }
+
+    HPEN pen = CreatePen(PS_SOLID, 3, RGB(236, 220, 255));
+    HGDIOBJ old_pen = SelectObject(dc, pen);
+    HGDIOBJ old_brush = SelectObject(dc, GetStockObject(NULL_BRUSH));
+    Ellipse(dc, 8, 8, 24, 24);
+    MoveToEx(dc, 22, 22, nullptr);
+    LineTo(dc, 28, 28);
+    SelectObject(dc, old_brush);
+    SelectObject(dc, old_pen);
+    DeleteObject(pen);
+
+    SelectObject(dc, old);
+    DeleteDC(dc);
+    ReleaseDC(nullptr, screen);
+
+    HBITMAP mask = CreateBitmap(32, 32, 1, 1, nullptr);
+    ICONINFO info{};
+    info.fIcon = TRUE;
+    info.hbmColor = color;
+    info.hbmMask = mask;
+    HICON icon = CreateIconIndirect(&info);
+    DeleteObject(color);
+    DeleteObject(mask);
+    return icon;
 }
 
 static int get_int(HWND hwnd, int fallback, int lo, int hi) {
@@ -451,31 +547,40 @@ static void toggle_worker() {
 }
 
 static HWND add_label(HWND parent, const wchar_t* text, int x, int y, int w, int h) {
-    return CreateWindowExW(0, L"STATIC", text, WS_CHILD | WS_VISIBLE,
-                           x, y, w, h, parent, nullptr, GetModuleHandleW(nullptr), nullptr);
+    HWND hwnd = CreateWindowExW(0, L"STATIC", text, WS_CHILD | WS_VISIBLE,
+                                x, y, w, h, parent, nullptr, GetModuleHandleW(nullptr), nullptr);
+    apply_font(hwnd, g_font_bold);
+    return hwnd;
 }
 
 static HWND add_edit(HWND parent, int id, int x, int y, int w, int h, const wchar_t* text) {
-    return CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", text, WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
-                           x, y, w, h, parent, reinterpret_cast<HMENU>(id), GetModuleHandleW(nullptr), nullptr);
+    HWND hwnd = CreateWindowExW(0, L"EDIT", text, WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL | WS_BORDER,
+                                x, y, w, h, parent, reinterpret_cast<HMENU>(id), GetModuleHandleW(nullptr), nullptr);
+    apply_font(hwnd, g_font);
+    return hwnd;
 }
 
 static HWND add_combo(HWND parent, int id, int x, int y, int w, int h) {
-    return CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-                           x, y, w, h, parent, reinterpret_cast<HMENU>(id), GetModuleHandleW(nullptr), nullptr);
+    HWND hwnd = CreateWindowExW(0, L"COMBOBOX", L"", WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+                                x, y, w, h, parent, reinterpret_cast<HMENU>(id), GetModuleHandleW(nullptr), nullptr);
+    apply_font(hwnd, g_font);
+    return hwnd;
 }
 
 static HWND add_button(HWND parent, int id, const wchar_t* text, int x, int y, int w, int h) {
-    return CreateWindowExW(0, L"BUTTON", text, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                           x, y, w, h, parent, reinterpret_cast<HMENU>(id), GetModuleHandleW(nullptr), nullptr);
+    HWND hwnd = CreateWindowExW(0, L"BUTTON", text, WS_CHILD | WS_VISIBLE | BS_OWNERDRAW,
+                                x, y, w, h, parent, reinterpret_cast<HMENU>(id), GetModuleHandleW(nullptr), nullptr);
+    apply_font(hwnd, g_font_bold);
+    return hwnd;
 }
 
 static void create_controls(HWND hwnd) {
-    add_label(hwnd, L"ColorBot", 20, 16, 170, 28);
-    g_status = add_label(hwnd, L"OFF - click START or press F8", 230, 18, 260, 24);
+    add_label(hwnd, L"CONTROL", 28, 96, 120, 20);
+    g_status = add_label(hwnd, L"OFF - press F8", 600, 38, 135, 26);
+    apply_font(g_status, g_font_small);
 
-    add_label(hwnd, L"Color to watch", 24, 62, 120, 20);
-    g_mode = add_combo(hwnd, IDC_MODE, 160, 58, 220, 200);
+    add_label(hwnd, L"Color to watch", 270, 112, 135, 24);
+    g_mode = add_combo(hwnd, IDC_MODE, 270, 138, 230, 180);
     combo_add(g_mode, L"Yellow outline");
     combo_add(g_mode, L"Red outline");
     combo_add(g_mode, L"Purple outline");
@@ -483,51 +588,49 @@ static void create_controls(HWND hwnd) {
     SendMessageW(g_mode, CB_SETCURSEL, 0, 0);
 
     g_preview = CreateWindowExW(WS_EX_CLIENTEDGE, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
-                                400, 58, 46, 26, hwnd, reinterpret_cast<HMENU>(IDC_PREVIEW),
+                                520, 138, 50, 28, hwnd, reinterpret_cast<HMENU>(IDC_PREVIEW),
                                 GetModuleHandleW(nullptr), nullptr);
 
-    add_label(hwnd, L"Key to press", 24, 108, 120, 20);
-    g_key = add_edit(hwnd, IDC_KEY, 160, 104, 100, 26, L"F");
-    add_label(hwnd, L"Examples: F, E, SPACE, SHIFT, CTRL", 280, 108, 240, 20);
+    add_label(hwnd, L"Key", 610, 112, 70, 24);
+    g_key = add_edit(hwnd, IDC_KEY, 610, 138, 110, 28, L"F");
 
-    add_label(hwnd, L"Action", 24, 154, 120, 20);
-    g_action = add_combo(hwnd, IDC_ACTION, 160, 150, 220, 120);
+    add_label(hwnd, L"Action", 270, 190, 120, 24);
+    g_action = add_combo(hwnd, IDC_ACTION, 270, 216, 230, 120);
     combo_add(g_action, L"Tap repeatedly");
     combo_add(g_action, L"Hold while visible");
     SendMessageW(g_action, CB_SETCURSEL, 0, 0);
 
-    add_label(hwnd, L"Reaction delay", 24, 200, 120, 20);
-    g_reaction_ms = add_edit(hwnd, IDC_REACTION_MS, 160, 196, 100, 26, L"0");
-    add_label(hwnd, L"ms before pressing after color appears", 280, 200, 250, 20);
+    add_label(hwnd, L"Reaction", 540, 190, 120, 24);
+    g_reaction_ms = add_edit(hwnd, IDC_REACTION_MS, 540, 216, 80, 28, L"0");
+    add_label(hwnd, L"ms", 630, 221, 40, 20);
 
-    add_label(hwnd, L"Tap interval", 24, 246, 120, 20);
-    g_press_interval_ms = add_edit(hwnd, IDC_PRESS_INTERVAL_MS, 160, 242, 100, 26, L"25");
-    add_label(hwnd, L"ms between taps, ignored in hold mode", 280, 246, 250, 20);
+    add_label(hwnd, L"Tap interval", 270, 268, 120, 24);
+    g_press_interval_ms = add_edit(hwnd, IDC_PRESS_INTERVAL_MS, 270, 294, 90, 28, L"25");
+    add_label(hwnd, L"ms", 370, 299, 40, 20);
 
-    add_label(hwnd, L"Detection", 24, 292, 120, 20);
-    g_sensitivity = add_combo(hwnd, IDC_SENSITIVITY, 160, 288, 220, 150);
+    add_label(hwnd, L"Detection", 430, 268, 120, 24);
+    g_sensitivity = add_combo(hwnd, IDC_SENSITIVITY, 430, 294, 150, 140);
     combo_add(g_sensitivity, L"Strict");
     combo_add(g_sensitivity, L"Normal");
     combo_add(g_sensitivity, L"Loose");
     SendMessageW(g_sensitivity, CB_SETCURSEL, 1, 0);
 
-    add_label(hwnd, L"Scan box size", 24, 338, 120, 20);
-    g_box_w = add_edit(hwnd, IDC_BOX_W, 160, 334, 70, 26, L"40");
-    add_label(hwnd, L"x", 238, 338, 16, 20);
-    g_box_h = add_edit(hwnd, IDC_BOX_H, 260, 334, 70, 26, L"40");
-    add_label(hwnd, L"pixels, centered on screen", 350, 338, 170, 20);
+    add_label(hwnd, L"Scan box", 620, 268, 100, 24);
+    g_box_w = add_edit(hwnd, IDC_BOX_W, 620, 294, 64, 28, L"40");
+    add_label(hwnd, L"x", 692, 299, 16, 20);
+    g_box_h = add_edit(hwnd, IDC_BOX_H, 712, 294, 64, 28, L"40");
 
-    add_label(hwnd, L"Custom RGB", 24, 384, 120, 20);
-    g_custom_r = add_edit(hwnd, IDC_CUSTOM_R, 160, 380, 54, 26, L"255");
-    g_custom_g = add_edit(hwnd, IDC_CUSTOM_G, 222, 380, 54, 26, L"230");
-    g_custom_b = add_edit(hwnd, IDC_CUSTOM_B, 284, 380, 54, 26, L"0");
-    g_pick_color = add_button(hwnd, IDC_PICK_COLOR, L"Pick", 354, 379, 70, 28);
+    add_label(hwnd, L"Custom RGB", 270, 348, 120, 24);
+    g_custom_r = add_edit(hwnd, IDC_CUSTOM_R, 270, 374, 58, 28, L"255");
+    g_custom_g = add_edit(hwnd, IDC_CUSTOM_G, 338, 374, 58, 28, L"230");
+    g_custom_b = add_edit(hwnd, IDC_CUSTOM_B, 406, 374, 58, 28, L"0");
+    g_pick_color = add_button(hwnd, IDC_PICK_COLOR, L"PICK", 482, 372, 92, 32);
 
-    add_button(hwnd, IDC_START, L"START", 110, 432, 145, 42);
-    add_button(hwnd, IDC_STOP, L"STOP", 275, 432, 145, 42);
+    add_button(hwnd, IDC_START, L"START", 270, 444, 230, 44);
+    add_button(hwnd, IDC_STOP, L"STOP", 530, 444, 230, 44);
     EnableWindow(GetDlgItem(hwnd, IDC_STOP), FALSE);
 
-    add_label(hwnd, L"Hotkeys: F8 start/stop   F9 stop", 140, 494, 260, 20);
+    add_label(hwnd, L"F8 start/stop    F9 stop", 365, 512, 250, 22);
     refresh_custom_controls();
     refresh_action_controls();
 }
@@ -563,12 +666,114 @@ static void choose_color(HWND hwnd) {
     }
 }
 
+static void fill_round(HDC dc, RECT rect, int radius, COLORREF color) {
+    HBRUSH brush = CreateSolidBrush(color);
+    HPEN pen = CreatePen(PS_SOLID, 1, color);
+    HGDIOBJ old_brush = SelectObject(dc, brush);
+    HGDIOBJ old_pen = SelectObject(dc, pen);
+    RoundRect(dc, rect.left, rect.top, rect.right, rect.bottom, radius, radius);
+    SelectObject(dc, old_pen);
+    SelectObject(dc, old_brush);
+    DeleteObject(pen);
+    DeleteObject(brush);
+}
+
+static void draw_text(HDC dc, const wchar_t* text, RECT rect, HFONT font, COLORREF color, UINT flags) {
+    HGDIOBJ old_font = SelectObject(dc, font);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, color);
+    DrawTextW(dc, text, -1, &rect, flags);
+    SelectObject(dc, old_font);
+}
+
+static void paint_window(HWND hwnd) {
+    PAINTSTRUCT ps{};
+    HDC dc = BeginPaint(hwnd, &ps);
+
+    RECT client{};
+    GetClientRect(hwnd, &client);
+    FillRect(dc, &client, g_bg_brush);
+
+    RECT sidebar{0, 0, 230, client.bottom};
+    fill_round(dc, sidebar, 0, RGB(17, 18, 23));
+
+    RECT brand{30, 34, 210, 68};
+    draw_text(dc, L"minhan", brand, g_font_title, COLOR_TEXT, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    RECT dot{118, 34, 210, 68};
+    draw_text(dc, L".time", dot, g_font_title, COLOR_ACCENT, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+
+    RECT subtitle{32, 72, 200, 96};
+    draw_text(dc, L"screen color control", subtitle, g_font_small, COLOR_MUTED, DT_LEFT | DT_SINGLELINE);
+
+    RECT nav1{24, 128, 206, 172};
+    fill_round(dc, nav1, 12, RGB(34, 30, 44));
+    RECT nav1_text{56, 138, 196, 166};
+    draw_text(dc, L"Trigger", nav1_text, g_font_bold, COLOR_TEXT, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+    HPEN accent_pen = CreatePen(PS_SOLID, 4, COLOR_ACCENT);
+    HGDIOBJ old_pen = SelectObject(dc, accent_pen);
+    MoveToEx(dc, 34, 138, nullptr);
+    LineTo(dc, 34, 162);
+    SelectObject(dc, old_pen);
+    DeleteObject(accent_pen);
+
+    RECT nav2{24, 188, 206, 232};
+    RECT nav2_text{56, 198, 196, 226};
+    draw_text(dc, L"Timing", nav2_text, g_font_bold, COLOR_MUTED, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+
+    RECT nav3{24, 248, 206, 292};
+    RECT nav3_text{56, 258, 196, 286};
+    draw_text(dc, L"Config", nav3_text, g_font_bold, COLOR_MUTED, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+
+    RECT panel_left{250, 86, 596, 414};
+    RECT panel_right{610, 86, 790, 414};
+    fill_round(dc, panel_left, 10, COLOR_PANEL);
+    fill_round(dc, panel_right, 10, RGB(22, 23, 29));
+
+    RECT panel_title{270, 92, 520, 118};
+    draw_text(dc, L"Trigger settings", panel_title, g_font_bold, COLOR_TEXT, DT_LEFT | DT_SINGLELINE);
+    RECT panel_title2{610, 92, 760, 118};
+    draw_text(dc, L"Key + scan", panel_title2, g_font_bold, COLOR_TEXT, DT_LEFT | DT_SINGLELINE);
+
+    EndPaint(hwnd, &ps);
+}
+
+static void draw_owner_button(const DRAWITEMSTRUCT* item) {
+    HDC dc = item->hDC;
+    const bool disabled = (item->itemState & ODS_DISABLED) != 0;
+    const bool pressed = (item->itemState & ODS_SELECTED) != 0;
+
+    wchar_t text[64]{};
+    GetWindowTextW(item->hwndItem, text, 64);
+
+    COLORREF fill = COLOR_STOP;
+    COLORREF text_color = disabled ? RGB(118, 112, 128) : COLOR_TEXT;
+    if (item->CtlID == IDC_START) fill = pressed ? RGB(156, 55, 224) : COLOR_ACCENT;
+    if (item->CtlID == IDC_PICK_COLOR) fill = pressed ? RGB(50, 155, 203) : COLOR_ACCENT_2;
+    if (item->CtlID == IDC_STOP) fill = pressed ? RGB(78, 72, 88) : RGB(52, 49, 58);
+    if (disabled) fill = RGB(34, 34, 40);
+
+    RECT r = item->rcItem;
+    fill_round(dc, r, 10, fill);
+    draw_text(dc, text, r, g_font_bold, text_color, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+}
+
 static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
     case WM_CREATE:
+        init_theme();
+        g_app_icon = create_app_icon();
+        SendMessageW(hwnd, WM_SETICON, ICON_BIG, reinterpret_cast<LPARAM>(g_app_icon));
+        SendMessageW(hwnd, WM_SETICON, ICON_SMALL, reinterpret_cast<LPARAM>(g_app_icon));
         create_controls(hwnd);
         RegisterHotKey(hwnd, 1, 0, VK_F8);
         RegisterHotKey(hwnd, 2, 0, VK_F9);
+        return 0;
+
+    case WM_ERASEBKGND:
+        return 1;
+
+    case WM_PAINT:
+        paint_window(hwnd);
         return 0;
 
     case WM_COMMAND:
@@ -601,17 +806,37 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         if (wparam == 2) stop_worker();
         return 0;
 
+    case WM_DRAWITEM:
+        draw_owner_button(reinterpret_cast<const DRAWITEMSTRUCT*>(lparam));
+        return TRUE;
+
+    case WM_CTLCOLORBTN:
+        SetBkMode(reinterpret_cast<HDC>(wparam), TRANSPARENT);
+        return reinterpret_cast<LRESULT>(g_bg_brush);
+
+    case WM_CTLCOLOREDIT:
+        SetTextColor(reinterpret_cast<HDC>(wparam), COLOR_TEXT);
+        SetBkColor(reinterpret_cast<HDC>(wparam), COLOR_INPUT);
+        return reinterpret_cast<LRESULT>(g_input_brush);
+
+    case WM_CTLCOLORLISTBOX:
+        SetTextColor(reinterpret_cast<HDC>(wparam), COLOR_TEXT);
+        SetBkColor(reinterpret_cast<HDC>(wparam), COLOR_INPUT);
+        return reinterpret_cast<LRESULT>(g_input_brush);
+
     case WM_CTLCOLORSTATIC:
         if (reinterpret_cast<HWND>(lparam) == g_preview) {
             if (g_preview_brush) DeleteObject(g_preview_brush);
             g_preview_brush = CreateSolidBrush(preview_color());
             return reinterpret_cast<LRESULT>(g_preview_brush);
         }
-        break;
+        SetBkMode(reinterpret_cast<HDC>(wparam), TRANSPARENT);
+        SetTextColor(reinterpret_cast<HDC>(wparam), COLOR_TEXT);
+        return reinterpret_cast<LRESULT>(GetStockObject(NULL_BRUSH));
 
     case WM_APP + 1:
         stop_worker();
-        MessageBoxW(hwnd, L"Screen capture could not start.", L"ColorBot", MB_ICONERROR);
+        MessageBoxW(hwnd, L"Screen capture could not start.", L"minhan-time", MB_ICONERROR);
         return 0;
 
     case WM_CLOSE:
@@ -624,6 +849,15 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         UnregisterHotKey(hwnd, 1);
         UnregisterHotKey(hwnd, 2);
         if (g_preview_brush) DeleteObject(g_preview_brush);
+        if (g_bg_brush) DeleteObject(g_bg_brush);
+        if (g_panel_brush) DeleteObject(g_panel_brush);
+        if (g_input_brush) DeleteObject(g_input_brush);
+        if (g_label_brush) DeleteObject(g_label_brush);
+        if (g_font) DeleteObject(g_font);
+        if (g_font_bold) DeleteObject(g_font_bold);
+        if (g_font_title) DeleteObject(g_font_title);
+        if (g_font_small) DeleteObject(g_font_small);
+        if (g_app_icon) DestroyIcon(g_app_icon);
         PostQuitMessage(0);
         return 0;
     }
@@ -634,7 +868,7 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_cmd) {
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
-    const wchar_t class_name[] = L"ColorBotWindow";
+    const wchar_t class_name[] = L"MinhanTimeWindow";
     WNDCLASSW wc{};
     wc.lpfnWndProc = window_proc;
     wc.hInstance = instance;
@@ -644,9 +878,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_cmd) {
 
     if (!RegisterClassW(&wc)) return 1;
 
-    g_main = CreateWindowExW(0, class_name, L"ColorBot",
+    g_main = CreateWindowExW(0, class_name, L"minhan-time",
                              WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                             CW_USEDEFAULT, CW_USEDEFAULT, 545, 575,
+                             CW_USEDEFAULT, CW_USEDEFAULT, 815, 600,
                              nullptr, nullptr, instance, nullptr);
     if (!g_main) return 1;
 
