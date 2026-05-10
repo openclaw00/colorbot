@@ -16,10 +16,10 @@ For Windows, use:
 
 - Yellow, red, purple, and custom color modes
 - Configurable key to press
-- Press-rate dropdown: 1/sec, 2/sec, 5/sec, 10/sec, or spam while visible
-- Reaction speed presets
+- Custom reaction delay in milliseconds
+- Custom press interval in milliseconds
 - Detection strictness presets
-- Center box size presets
+- Custom scan box width and height
 - F8 toggles start/stop
 - F9 stops immediately
 

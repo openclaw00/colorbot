@@ -18,42 +18,43 @@
   <text x="170" y="124" font-family="Segoe UI, Arial" font-size="14" fill="#111">F</text>
   <text x="280" y="124" font-family="Segoe UI, Arial" font-size="13" fill="#444">Examples: F, E, SPACE, SHIFT, CTRL</text>
 
-  <text x="24" y="170" font-family="Segoe UI, Arial" font-size="14" fill="#222">Reaction speed</text>
-  <rect x="160" y="150" width="220" height="30" rx="2" fill="#fff" stroke="#777"/>
-  <text x="170" y="170" font-family="Segoe UI, Arial" font-size="14" fill="#111">Balanced</text>
-  <path d="M360 161 l8 8 l8 -8" fill="none" stroke="#333" stroke-width="1.5"/>
+  <text x="24" y="170" font-family="Segoe UI, Arial" font-size="14" fill="#222">Reaction delay</text>
+  <rect x="160" y="150" width="100" height="30" rx="2" fill="#fff" stroke="#777"/>
+  <text x="170" y="170" font-family="Segoe UI, Arial" font-size="14" fill="#111">0</text>
+  <text x="280" y="170" font-family="Segoe UI, Arial" font-size="13" fill="#444">ms before pressing after color appears</text>
 
-  <rect x="14" y="188" width="506" height="48" rx="4" fill="#fff7d6" stroke="#d0a900"/>
-  <text x="24" y="218" font-family="Segoe UI, Arial" font-size="15" font-weight="700" fill="#111">Press rate</text>
-  <rect x="160" y="197" width="220" height="30" rx="2" fill="#fff" stroke="#777"/>
-  <text x="170" y="217" font-family="Segoe UI, Arial" font-size="14" fill="#111">2 presses / second</text>
-  <path d="M360 208 l8 8 l8 -8" fill="none" stroke="#333" stroke-width="1.5"/>
-  <text x="395" y="217" font-family="Segoe UI, Arial" font-size="13" fill="#555">new dropdown</text>
+  <text x="24" y="216" font-family="Segoe UI, Arial" font-size="14" fill="#222">Press interval</text>
+  <rect x="160" y="196" width="100" height="30" rx="2" fill="#fff" stroke="#777"/>
+  <text x="170" y="216" font-family="Segoe UI, Arial" font-size="14" fill="#111">25</text>
+  <text x="280" y="216" font-family="Segoe UI, Arial" font-size="13" fill="#444">ms between presses while visible</text>
 
-  <text x="24" y="264" font-family="Segoe UI, Arial" font-size="14" fill="#222">Detection</text>
-  <rect x="160" y="244" width="220" height="30" rx="2" fill="#fff" stroke="#777"/>
-  <text x="170" y="264" font-family="Segoe UI, Arial" font-size="14" fill="#111">Normal</text>
-  <path d="M360 255 l8 8 l8 -8" fill="none" stroke="#333" stroke-width="1.5"/>
+  <text x="24" y="262" font-family="Segoe UI, Arial" font-size="14" fill="#222">Detection</text>
+  <rect x="160" y="242" width="220" height="30" rx="2" fill="#fff" stroke="#777"/>
+  <text x="170" y="262" font-family="Segoe UI, Arial" font-size="14" fill="#111">Normal</text>
+  <path d="M360 253 l8 8 l8 -8" fill="none" stroke="#333" stroke-width="1.5"/>
 
-  <text x="24" y="310" font-family="Segoe UI, Arial" font-size="14" fill="#222">Center box</text>
-  <rect x="160" y="290" width="220" height="30" rx="2" fill="#fff" stroke="#777"/>
-  <text x="170" y="310" font-family="Segoe UI, Arial" font-size="14" fill="#111">Small - 40 x 40</text>
-  <path d="M360 301 l8 8 l8 -8" fill="none" stroke="#333" stroke-width="1.5"/>
+  <text x="24" y="308" font-family="Segoe UI, Arial" font-size="14" fill="#222">Scan box size</text>
+  <rect x="160" y="288" width="70" height="30" rx="2" fill="#fff" stroke="#777"/>
+  <text x="170" y="308" font-family="Segoe UI, Arial" font-size="14" fill="#111">40</text>
+  <text x="238" y="308" font-family="Segoe UI, Arial" font-size="14" fill="#222">x</text>
+  <rect x="260" y="288" width="70" height="30" rx="2" fill="#fff" stroke="#777"/>
+  <text x="270" y="308" font-family="Segoe UI, Arial" font-size="14" fill="#111">40</text>
+  <text x="350" y="308" font-family="Segoe UI, Arial" font-size="13" fill="#444">pixels, centered on screen</text>
 
-  <text x="24" y="356" font-family="Segoe UI, Arial" font-size="14" fill="#777">Custom RGB</text>
-  <rect x="160" y="336" width="54" height="30" rx="2" fill="#eee" stroke="#bbb"/>
-  <text x="171" y="356" font-family="Segoe UI, Arial" font-size="13" fill="#777">255</text>
-  <rect x="222" y="336" width="54" height="30" rx="2" fill="#eee" stroke="#bbb"/>
-  <text x="236" y="356" font-family="Segoe UI, Arial" font-size="13" fill="#777">230</text>
-  <rect x="284" y="336" width="54" height="30" rx="2" fill="#eee" stroke="#bbb"/>
-  <text x="307" y="356" font-family="Segoe UI, Arial" font-size="13" fill="#777">0</text>
-  <rect x="354" y="336" width="70" height="30" rx="3" fill="#eee" stroke="#bbb"/>
-  <text x="376" y="356" font-family="Segoe UI, Arial" font-size="13" fill="#777">Pick</text>
+  <text x="24" y="354" font-family="Segoe UI, Arial" font-size="14" fill="#777">Custom RGB</text>
+  <rect x="160" y="334" width="54" height="30" rx="2" fill="#eee" stroke="#bbb"/>
+  <text x="171" y="354" font-family="Segoe UI, Arial" font-size="13" fill="#777">255</text>
+  <rect x="222" y="334" width="54" height="30" rx="2" fill="#eee" stroke="#bbb"/>
+  <text x="236" y="354" font-family="Segoe UI, Arial" font-size="13" fill="#777">230</text>
+  <rect x="284" y="334" width="54" height="30" rx="2" fill="#eee" stroke="#bbb"/>
+  <text x="307" y="354" font-family="Segoe UI, Arial" font-size="13" fill="#777">0</text>
+  <rect x="354" y="334" width="70" height="30" rx="3" fill="#eee" stroke="#bbb"/>
+  <text x="376" y="354" font-family="Segoe UI, Arial" font-size="13" fill="#777">Pick</text>
 
-  <rect x="110" y="390" width="145" height="44" rx="4" fill="#e9f2ff" stroke="#548ed4"/>
-  <text x="159" y="418" font-family="Segoe UI, Arial" font-size="15" font-weight="600" fill="#111">START</text>
-  <rect x="275" y="390" width="145" height="44" rx="4" fill="#f2f2f2" stroke="#9d9d9d"/>
-  <text x="324" y="418" font-family="Segoe UI, Arial" font-size="15" font-weight="600" fill="#111">STOP</text>
+  <rect x="110" y="386" width="145" height="44" rx="4" fill="#e9f2ff" stroke="#548ed4"/>
+  <text x="159" y="414" font-family="Segoe UI, Arial" font-size="15" font-weight="600" fill="#111">START</text>
+  <rect x="275" y="386" width="145" height="44" rx="4" fill="#f2f2f2" stroke="#9d9d9d"/>
+  <text x="324" y="414" font-family="Segoe UI, Arial" font-size="15" font-weight="600" fill="#111">STOP</text>
 
-  <text x="140" y="472" font-family="Segoe UI, Arial" font-size="14" fill="#333">Hotkeys: F8 start/stop   F9 stop</text>
+  <text x="140" y="470" font-family="Segoe UI, Arial" font-size="14" fill="#333">Hotkeys: F8 start/stop   F9 stop</text>
 </svg>
