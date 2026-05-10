@@ -23,6 +23,7 @@ For Windows, use:
 - Custom tap interval in milliseconds
 - Detection strictness presets
 - Custom scan box width and height
+- Up to 5 named local configs saved in `%APPDATA%\minhan-time\configs.json`
 - F8 toggles start/stop
 - F9 stops immediately
 
@@ -32,8 +33,9 @@ For Windows, use:
 2. Pick a color mode.
 3. Pick the key to press.
 4. Pick `Tap repeatedly` or `Hold while visible`.
-5. Click `START`.
-6. Use `F8` to toggle on/off and `F9` to stop.
+5. Optionally name the setup and click `SAVE`.
+6. Click `START`.
+7. Use `F8` to toggle on/off and `F9` to stop.
 
 ## Build
 

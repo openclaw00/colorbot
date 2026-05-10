@@ -12,7 +12,8 @@
     2. Pick the key to press.
     3. Pick tap mode or hold mode.
     4. Set reaction delay, press interval, and scan box size.
-    4. Click START.
+    5. Save up to 5 named local configs.
+    6. Click START.
     5. Press F8 to turn it on/off while in another program.
     6. Press F9 to stop immediately.
 
@@ -26,12 +27,16 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <cstdint>
 #include <cstdlib>
 #include <cwctype>
+#include <fstream>
 #include <mutex>
+#include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 enum : int {
     IDC_MODE = 1001,
@@ -49,7 +54,12 @@ enum : int {
     IDC_PREVIEW,
     IDC_START,
     IDC_STOP,
-    IDC_STATUS
+    IDC_STATUS,
+    IDC_CONFIG_NAME,
+    IDC_CONFIG_LIST,
+    IDC_SAVE_CONFIG,
+    IDC_LOAD_CONFIG,
+    IDC_DELETE_CONFIG
 };
 
 enum class ColorMode { Yellow = 0, Red = 1, Purple = 2, Custom = 3 };
@@ -72,6 +82,11 @@ struct Config {
     int hold_ms = 20;
     int press_interval_ms = 25;
     int loop_sleep_ms = 0;
+};
+
+struct SavedConfig {
+    std::wstring name;
+    Config config;
 };
 
 struct CaptureBuffer {
@@ -150,6 +165,8 @@ static HWND g_custom_b = nullptr;
 static HWND g_pick_color = nullptr;
 static HWND g_preview = nullptr;
 static HWND g_status = nullptr;
+static HWND g_config_name = nullptr;
+static HWND g_config_list = nullptr;
 static HBRUSH g_preview_brush = nullptr;
 static HBRUSH g_bg_brush = nullptr;
 static HBRUSH g_panel_brush = nullptr;
@@ -172,6 +189,7 @@ static constexpr COLORREF COLOR_STOP = RGB(62, 58, 68);
 
 static std::mutex g_config_mutex;
 static Config g_config;
+static std::vector<SavedConfig> g_saved_configs;
 static std::atomic<bool> g_running{false};
 static std::thread g_worker;
 
@@ -282,6 +300,53 @@ static std::wstring get_text(HWND hwnd) {
     return buf;
 }
 
+static std::string to_utf8(const std::wstring& text) {
+    if (text.empty()) return {};
+    const int size = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    std::string out(size > 0 ? size - 1 : 0, '\0');
+    if (size > 0) WideCharToMultiByte(CP_UTF8, 0, text.c_str(), -1, out.data(), size, nullptr, nullptr);
+    return out;
+}
+
+static std::wstring from_utf8(const std::string& text) {
+    if (text.empty()) return {};
+    const int size = MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, nullptr, 0);
+    std::wstring out(size > 0 ? size - 1 : 0, L'\0');
+    if (size > 0) MultiByteToWideChar(CP_UTF8, 0, text.c_str(), -1, out.data(), size);
+    return out;
+}
+
+static std::wstring trim_ws(std::wstring s) {
+    while (!s.empty() && iswspace(s.front())) s.erase(s.begin());
+    while (!s.empty() && iswspace(s.back())) s.pop_back();
+    return s;
+}
+
+static std::string json_escape(const std::wstring& text) {
+    std::string input = to_utf8(text);
+    std::string out;
+    for (char c : input) {
+        if (c == '"' || c == '\\') {
+            out.push_back('\\');
+            out.push_back(c);
+        } else if (c == '\n') {
+            out += "\\n";
+        } else {
+            out.push_back(c);
+        }
+    }
+    return out;
+}
+
+static std::wstring config_file_path() {
+    wchar_t appdata[MAX_PATH]{};
+    DWORD len = GetEnvironmentVariableW(L"APPDATA", appdata, MAX_PATH);
+    std::wstring dir = (len > 0 && len < MAX_PATH) ? appdata : L".";
+    dir += L"\\minhan-time";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    return dir + L"\\configs.json";
+}
+
 static WORD parse_key(HWND hwnd) {
     std::wstring s = get_text(hwnd);
     while (!s.empty() && iswspace(s.front())) s.erase(s.begin());
@@ -342,6 +407,9 @@ static void set_sensitivity(Config& cfg) {
     }
 }
 
+static void refresh_custom_controls();
+static void refresh_action_controls();
+
 static Config read_config_from_ui() {
     Config cfg;
     cfg.color_mode = static_cast<ColorMode>(combo_index(g_mode));
@@ -363,6 +431,220 @@ static Config read_config_from_ui() {
     set_int(g_box_h, cfg.box_h);
 
     return cfg;
+}
+
+static std::wstring key_name_from_vk(WORD vk) {
+    if ((vk >= 'A' && vk <= 'Z') || (vk >= '0' && vk <= '9')) {
+        return std::wstring(1, static_cast<wchar_t>(vk));
+    }
+    if (vk == VK_SPACE) return L"SPACE";
+    if (vk == VK_RETURN) return L"ENTER";
+    if (vk == VK_TAB) return L"TAB";
+    if (vk == VK_SHIFT) return L"SHIFT";
+    if (vk == VK_CONTROL) return L"CTRL";
+    if (vk == VK_MENU) return L"ALT";
+    if (vk == VK_ESCAPE) return L"ESC";
+    if (vk >= VK_F1 && vk <= VK_F24) {
+        wchar_t buf[8]{};
+        wsprintfW(buf, L"F%d", vk - VK_F1 + 1);
+        return buf;
+    }
+    return L"F";
+}
+
+static void apply_config_to_ui(const Config& cfg) {
+    SendMessageW(g_mode, CB_SETCURSEL, static_cast<int>(cfg.color_mode), 0);
+    SendMessageW(g_action, CB_SETCURSEL, static_cast<int>(cfg.action_mode), 0);
+    SendMessageW(g_sensitivity, CB_SETCURSEL, static_cast<int>(cfg.sensitivity), 0);
+    set_text(g_key, key_name_from_vk(cfg.vk).c_str());
+    set_int(g_reaction_ms, cfg.reaction_ms);
+    set_int(g_press_interval_ms, cfg.press_interval_ms);
+    set_int(g_box_w, cfg.box_w);
+    set_int(g_box_h, cfg.box_h);
+    set_int(g_custom_r, cfg.custom_r);
+    set_int(g_custom_g, cfg.custom_g);
+    set_int(g_custom_b, cfg.custom_b);
+    refresh_custom_controls();
+    refresh_action_controls();
+}
+
+static bool read_file_text(const std::wstring& path, std::string& out) {
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    DWORD size = GetFileSize(file, nullptr);
+    if (size == INVALID_FILE_SIZE || size == 0) {
+        CloseHandle(file);
+        out.clear();
+        return true;
+    }
+    out.assign(size, '\0');
+    DWORD read = 0;
+    BOOL ok = ReadFile(file, out.data(), size, &read, nullptr);
+    CloseHandle(file);
+    if (!ok) return false;
+    out.resize(read);
+    return true;
+}
+
+static bool write_file_text(const std::wstring& path, const std::string& text) {
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    DWORD written = 0;
+    BOOL ok = WriteFile(file, text.data(), static_cast<DWORD>(text.size()), &written, nullptr);
+    CloseHandle(file);
+    return ok && written == text.size();
+}
+
+static int json_int(const std::string& obj, const char* key, int fallback) {
+    std::string needle = std::string("\"") + key + "\":";
+    size_t p = obj.find(needle);
+    if (p == std::string::npos) return fallback;
+    p += needle.size();
+    while (p < obj.size() && isspace(static_cast<unsigned char>(obj[p]))) ++p;
+    char* end = nullptr;
+    long value = strtol(obj.c_str() + p, &end, 10);
+    return end == obj.c_str() + p ? fallback : static_cast<int>(value);
+}
+
+static std::wstring json_string(const std::string& obj, const char* key) {
+    std::string needle = std::string("\"") + key + "\":\"";
+    size_t p = obj.find(needle);
+    if (p == std::string::npos) return {};
+    p += needle.size();
+    std::string out;
+    bool escaped = false;
+    for (; p < obj.size(); ++p) {
+        char c = obj[p];
+        if (escaped) {
+            out.push_back(c == 'n' ? '\n' : c);
+            escaped = false;
+        } else if (c == '\\') {
+            escaped = true;
+        } else if (c == '"') {
+            break;
+        } else {
+            out.push_back(c);
+        }
+    }
+    return from_utf8(out);
+}
+
+static void refresh_config_list() {
+    SendMessageW(g_config_list, CB_RESETCONTENT, 0, 0);
+    for (const SavedConfig& saved : g_saved_configs) {
+        SendMessageW(g_config_list, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(saved.name.c_str()));
+    }
+    if (!g_saved_configs.empty()) SendMessageW(g_config_list, CB_SETCURSEL, 0, 0);
+}
+
+static void load_saved_configs() {
+    g_saved_configs.clear();
+    std::string json;
+    if (!read_file_text(config_file_path(), json)) return;
+
+    size_t pos = 0;
+    while (g_saved_configs.size() < 5) {
+        size_t start = json.find('{', pos);
+        if (start == std::string::npos) break;
+        size_t end = json.find('}', start);
+        if (end == std::string::npos) break;
+        std::string obj = json.substr(start, end - start + 1);
+        pos = end + 1;
+
+        std::wstring name = json_string(obj, "name");
+        if (name.empty()) continue;
+
+        SavedConfig saved{};
+        saved.name = name;
+        saved.config.color_mode = static_cast<ColorMode>(clamp_int(json_int(obj, "color_mode", 0), 0, 3));
+        saved.config.action_mode = static_cast<ActionMode>(clamp_int(json_int(obj, "action_mode", 0), 0, 1));
+        saved.config.sensitivity = static_cast<SensitivityMode>(clamp_int(json_int(obj, "sensitivity", 1), 0, 2));
+        saved.config.vk = static_cast<WORD>(clamp_int(json_int(obj, "vk", 'F'), 1, 255));
+        saved.config.box_w = clamp_int(json_int(obj, "box_w", 40), 1, 800);
+        saved.config.box_h = clamp_int(json_int(obj, "box_h", 40), 1, 800);
+        saved.config.custom_r = clamp_int(json_int(obj, "custom_r", 255), 0, 255);
+        saved.config.custom_g = clamp_int(json_int(obj, "custom_g", 230), 0, 255);
+        saved.config.custom_b = clamp_int(json_int(obj, "custom_b", 0), 0, 255);
+        saved.config.reaction_ms = clamp_int(json_int(obj, "reaction_ms", 0), 0, 10000);
+        saved.config.press_interval_ms = clamp_int(json_int(obj, "press_interval_ms", 25), 0, 60000);
+        set_sensitivity(saved.config);
+        g_saved_configs.push_back(saved);
+    }
+    refresh_config_list();
+}
+
+static void save_saved_configs() {
+    std::ostringstream out;
+    out << "{\n  \"configs\": [\n";
+    for (size_t i = 0; i < g_saved_configs.size(); ++i) {
+        const SavedConfig& s = g_saved_configs[i];
+        const Config& c = s.config;
+        out << "    {\"name\":\"" << json_escape(s.name)
+            << "\",\"color_mode\":" << static_cast<int>(c.color_mode)
+            << ",\"action_mode\":" << static_cast<int>(c.action_mode)
+            << ",\"sensitivity\":" << static_cast<int>(c.sensitivity)
+            << ",\"vk\":" << c.vk
+            << ",\"box_w\":" << c.box_w
+            << ",\"box_h\":" << c.box_h
+            << ",\"custom_r\":" << c.custom_r
+            << ",\"custom_g\":" << c.custom_g
+            << ",\"custom_b\":" << c.custom_b
+            << ",\"reaction_ms\":" << c.reaction_ms
+            << ",\"press_interval_ms\":" << c.press_interval_ms
+            << "}";
+        if (i + 1 < g_saved_configs.size()) out << ",";
+        out << "\n";
+    }
+    out << "  ]\n}\n";
+    write_file_text(config_file_path(), out.str());
+}
+
+static void save_current_config_named() {
+    std::wstring name = trim_ws(get_text(g_config_name));
+    if (name.empty()) {
+        MessageBoxW(g_main, L"Name the config first.", L"minhan-time", MB_ICONINFORMATION);
+        return;
+    }
+
+    Config cfg = read_config_from_ui();
+    int existing = -1;
+    for (size_t i = 0; i < g_saved_configs.size(); ++i) {
+        if (lstrcmpiW(g_saved_configs[i].name.c_str(), name.c_str()) == 0) {
+            existing = static_cast<int>(i);
+            break;
+        }
+    }
+
+    if (existing < 0 && g_saved_configs.size() >= 5) {
+        MessageBoxW(g_main, L"Max 5 saved configs. Delete one first.", L"minhan-time", MB_ICONINFORMATION);
+        return;
+    }
+
+    if (existing >= 0) {
+        g_saved_configs[existing] = SavedConfig{name, cfg};
+    } else {
+        g_saved_configs.push_back(SavedConfig{name, cfg});
+        existing = static_cast<int>(g_saved_configs.size() - 1);
+    }
+
+    save_saved_configs();
+    refresh_config_list();
+    SendMessageW(g_config_list, CB_SETCURSEL, existing, 0);
+}
+
+static void load_selected_config() {
+    int index = combo_index(g_config_list);
+    if (index < 0 || index >= static_cast<int>(g_saved_configs.size())) return;
+    set_text(g_config_name, g_saved_configs[index].name.c_str());
+    apply_config_to_ui(g_saved_configs[index].config);
+}
+
+static void delete_selected_config() {
+    int index = combo_index(g_config_list);
+    if (index < 0 || index >= static_cast<int>(g_saved_configs.size())) return;
+    g_saved_configs.erase(g_saved_configs.begin() + index);
+    save_saved_configs();
+    refresh_config_list();
 }
 
 static Config current_config_copy() {
@@ -575,11 +857,11 @@ static HWND add_button(HWND parent, int id, const wchar_t* text, int x, int y, i
 }
 
 static void create_controls(HWND hwnd) {
-    g_status = add_label(hwnd, L"OFF - press F8", 615, 38, 135, 26);
+    g_status = add_label(hwnd, L"OFF - press F8", 530, 28, 130, 24);
     apply_font(g_status, g_font_small);
 
-    add_label(hwnd, L"Color to watch", 64, 166, 135, 22);
-    g_mode = add_combo(hwnd, IDC_MODE, 64, 192, 250, 180);
+    add_label(hwnd, L"Color to watch", 52, 146, 135, 20);
+    g_mode = add_combo(hwnd, IDC_MODE, 52, 170, 240, 160);
     combo_add(g_mode, L"Yellow outline");
     combo_add(g_mode, L"Red outline");
     combo_add(g_mode, L"Purple outline");
@@ -587,51 +869,58 @@ static void create_controls(HWND hwnd) {
     SendMessageW(g_mode, CB_SETCURSEL, 0, 0);
 
     g_preview = CreateWindowExW(WS_EX_CLIENTEDGE, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
-                                334, 192, 54, 28, hwnd, reinterpret_cast<HMENU>(IDC_PREVIEW),
+                                310, 170, 52, 28, hwnd, reinterpret_cast<HMENU>(IDC_PREVIEW),
                                 GetModuleHandleW(nullptr), nullptr);
 
-    add_label(hwnd, L"Key", 544, 166, 70, 22);
-    g_key = add_edit(hwnd, IDC_KEY, 544, 192, 132, 28, L"F");
+    add_label(hwnd, L"Key", 498, 146, 70, 20);
+    g_key = add_edit(hwnd, IDC_KEY, 498, 170, 120, 28, L"F");
 
-    add_label(hwnd, L"Action", 64, 248, 120, 22);
-    g_action = add_combo(hwnd, IDC_ACTION, 64, 274, 250, 120);
+    add_label(hwnd, L"Action", 52, 218, 120, 20);
+    g_action = add_combo(hwnd, IDC_ACTION, 52, 242, 240, 110);
     combo_add(g_action, L"Tap repeatedly");
     combo_add(g_action, L"Hold while visible");
     SendMessageW(g_action, CB_SETCURSEL, 0, 0);
 
-    add_label(hwnd, L"Reaction", 544, 248, 120, 22);
-    g_reaction_ms = add_edit(hwnd, IDC_REACTION_MS, 544, 274, 80, 28, L"0");
-    add_label(hwnd, L"ms", 636, 279, 40, 20);
+    add_label(hwnd, L"Reaction", 498, 218, 100, 20);
+    g_reaction_ms = add_edit(hwnd, IDC_REACTION_MS, 498, 242, 76, 28, L"0");
+    add_label(hwnd, L"ms", 586, 247, 35, 20);
 
-    add_label(hwnd, L"Tap interval", 64, 330, 120, 22);
-    g_press_interval_ms = add_edit(hwnd, IDC_PRESS_INTERVAL_MS, 64, 356, 90, 28, L"25");
-    add_label(hwnd, L"ms", 166, 361, 40, 20);
+    add_label(hwnd, L"Tap interval", 52, 290, 110, 20);
+    g_press_interval_ms = add_edit(hwnd, IDC_PRESS_INTERVAL_MS, 52, 314, 86, 28, L"25");
+    add_label(hwnd, L"ms", 150, 319, 35, 20);
 
-    add_label(hwnd, L"Detection", 236, 330, 120, 22);
-    g_sensitivity = add_combo(hwnd, IDC_SENSITIVITY, 236, 356, 150, 140);
+    add_label(hwnd, L"Detection", 218, 290, 120, 20);
+    g_sensitivity = add_combo(hwnd, IDC_SENSITIVITY, 218, 314, 145, 120);
     combo_add(g_sensitivity, L"Strict");
     combo_add(g_sensitivity, L"Normal");
     combo_add(g_sensitivity, L"Loose");
     SendMessageW(g_sensitivity, CB_SETCURSEL, 1, 0);
 
-    add_label(hwnd, L"Scan box", 544, 330, 100, 22);
-    g_box_w = add_edit(hwnd, IDC_BOX_W, 544, 356, 64, 28, L"40");
-    add_label(hwnd, L"x", 618, 361, 16, 20);
-    g_box_h = add_edit(hwnd, IDC_BOX_H, 638, 356, 64, 28, L"40");
+    add_label(hwnd, L"Scan box", 498, 290, 100, 20);
+    g_box_w = add_edit(hwnd, IDC_BOX_W, 498, 314, 58, 28, L"40");
+    add_label(hwnd, L"x", 566, 319, 16, 20);
+    g_box_h = add_edit(hwnd, IDC_BOX_H, 586, 314, 58, 28, L"40");
 
-    add_label(hwnd, L"Custom RGB", 64, 414, 120, 22);
-    g_custom_r = add_edit(hwnd, IDC_CUSTOM_R, 64, 440, 58, 28, L"255");
-    g_custom_g = add_edit(hwnd, IDC_CUSTOM_G, 134, 440, 58, 28, L"230");
-    g_custom_b = add_edit(hwnd, IDC_CUSTOM_B, 204, 440, 58, 28, L"0");
-    g_pick_color = add_button(hwnd, IDC_PICK_COLOR, L"PICK", 284, 438, 92, 32);
+    add_label(hwnd, L"Custom RGB", 52, 370, 120, 20);
+    g_custom_r = add_edit(hwnd, IDC_CUSTOM_R, 158, 366, 52, 28, L"255");
+    g_custom_g = add_edit(hwnd, IDC_CUSTOM_G, 220, 366, 52, 28, L"230");
+    g_custom_b = add_edit(hwnd, IDC_CUSTOM_B, 282, 366, 52, 28, L"0");
+    g_pick_color = add_button(hwnd, IDC_PICK_COLOR, L"PICK", 350, 364, 82, 32);
 
-    add_button(hwnd, IDC_START, L"START", 120, 498, 250, 44);
-    add_button(hwnd, IDC_STOP, L"STOP", 430, 498, 250, 44);
+    g_config_name = add_edit(hwnd, IDC_CONFIG_NAME, 52, 424, 130, 28, L"default");
+    g_config_list = add_combo(hwnd, IDC_CONFIG_LIST, 194, 424, 170, 140);
+    add_button(hwnd, IDC_SAVE_CONFIG, L"SAVE", 378, 422, 70, 32);
+    add_button(hwnd, IDC_LOAD_CONFIG, L"LOAD", 462, 422, 70, 32);
+    add_button(hwnd, IDC_DELETE_CONFIG, L"DEL", 546, 422, 70, 32);
+
+    add_button(hwnd, IDC_START, L"START", 90, 478, 230, 42);
+    add_button(hwnd, IDC_STOP, L"STOP", 380, 478, 230, 42);
     EnableWindow(GetDlgItem(hwnd, IDC_STOP), FALSE);
 
-    add_label(hwnd, L"F8 start/stop    F9 stop", 300, 558, 250, 22);
+    add_label(hwnd, L"F8 start/stop    F9 stop", 246, 532, 250, 22);
     refresh_custom_controls();
     refresh_action_controls();
+    load_saved_configs();
 }
 
 static COLORREF preview_color() {
@@ -693,23 +982,27 @@ static void paint_window(HWND hwnd) {
     GetClientRect(hwnd, &client);
     FillRect(dc, &client, g_bg_brush);
 
-    RECT brand{40, 28, 200, 62};
+    RECT brand{28, 20, 180, 54};
     draw_text(dc, L"minhan", brand, g_font_title, COLOR_TEXT, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    RECT dot{126, 28, 235, 62};
+    RECT dot{114, 20, 215, 54};
     draw_text(dc, L".time", dot, g_font_title, COLOR_ACCENT, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
-    RECT subtitle{42, 66, 230, 90};
+    RECT subtitle{30, 56, 220, 78};
     draw_text(dc, L"screen color control", subtitle, g_font_small, COLOR_MUTED, DT_LEFT | DT_SINGLELINE);
 
-    RECT panel_left{40, 112, 500, 430};
-    RECT panel_right{520, 112, 760, 430};
+    RECT panel_left{28, 94, 454, 402};
+    RECT panel_right{474, 94, 672, 402};
+    RECT panel_config{28, 414, 672, 466};
     fill_round(dc, panel_left, 10, COLOR_PANEL);
     fill_round(dc, panel_right, 10, RGB(22, 23, 29));
+    fill_round(dc, panel_config, 10, RGB(19, 20, 26));
 
-    RECT panel_title{64, 132, 360, 158};
+    RECT panel_title{52, 112, 300, 136};
     draw_text(dc, L"Trigger settings", panel_title, g_font_bold, COLOR_TEXT, DT_LEFT | DT_SINGLELINE);
-    RECT panel_title2{544, 132, 720, 158};
+    RECT panel_title2{498, 112, 650, 136};
     draw_text(dc, L"Key + scan", panel_title2, g_font_bold, COLOR_TEXT, DT_LEFT | DT_SINGLELINE);
+    RECT panel_title3{52, 398, 220, 422};
+    draw_text(dc, L"Saved configs", panel_title3, g_font_bold, COLOR_TEXT, DT_LEFT | DT_SINGLELINE);
 
     EndPaint(hwnd, &ps);
 }
@@ -725,7 +1018,11 @@ static void draw_owner_button(const DRAWITEMSTRUCT* item) {
     COLORREF fill = COLOR_STOP;
     COLORREF text_color = disabled ? RGB(118, 112, 128) : COLOR_TEXT;
     if (item->CtlID == IDC_START) fill = pressed ? RGB(156, 55, 224) : COLOR_ACCENT;
-    if (item->CtlID == IDC_PICK_COLOR) fill = pressed ? RGB(50, 155, 203) : COLOR_ACCENT_2;
+    if (item->CtlID == IDC_PICK_COLOR || item->CtlID == IDC_SAVE_CONFIG || item->CtlID == IDC_LOAD_CONFIG) {
+        fill = pressed ? RGB(50, 155, 203) : COLOR_ACCENT_2;
+        text_color = RGB(10, 16, 20);
+    }
+    if (item->CtlID == IDC_DELETE_CONFIG) fill = pressed ? RGB(78, 72, 88) : RGB(52, 49, 58);
     if (item->CtlID == IDC_STOP) fill = pressed ? RGB(78, 72, 88) : RGB(52, 49, 58);
     if (disabled) fill = RGB(34, 34, 40);
 
@@ -763,6 +1060,23 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
             return 0;
         case IDC_PICK_COLOR:
             choose_color(hwnd);
+            return 0;
+        case IDC_SAVE_CONFIG:
+            save_current_config_named();
+            return 0;
+        case IDC_LOAD_CONFIG:
+            load_selected_config();
+            return 0;
+        case IDC_DELETE_CONFIG:
+            delete_selected_config();
+            return 0;
+        case IDC_CONFIG_LIST:
+            if (HIWORD(wparam) == CBN_SELCHANGE) {
+                int index = combo_index(g_config_list);
+                if (index >= 0 && index < static_cast<int>(g_saved_configs.size())) {
+                    set_text(g_config_name, g_saved_configs[index].name.c_str());
+                }
+            }
             return 0;
         case IDC_MODE:
             if (HIWORD(wparam) == CBN_SELCHANGE) refresh_custom_controls();
@@ -857,7 +1171,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_cmd) {
 
     g_main = CreateWindowExW(0, class_name, L"minhan-time",
                              WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                             CW_USEDEFAULT, CW_USEDEFAULT, 800, 635,
+                             CW_USEDEFAULT, CW_USEDEFAULT, 700, 585,
                              nullptr, nullptr, instance, nullptr);
     if (!g_main) return 1;
 
