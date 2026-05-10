@@ -204,10 +204,10 @@ static void init_theme() {
     g_panel_brush = CreateSolidBrush(COLOR_PANEL);
     g_input_brush = CreateSolidBrush(COLOR_INPUT);
     g_label_brush = CreateSolidBrush(COLOR_BG);
-    g_font = make_font(18, FW_NORMAL);
-    g_font_bold = make_font(18, FW_SEMIBOLD);
-    g_font_title = make_font(26, FW_BOLD);
-    g_font_small = make_font(15, FW_NORMAL);
+    g_font = make_font(15, FW_NORMAL);
+    g_font_bold = make_font(15, FW_SEMIBOLD);
+    g_font_title = make_font(24, FW_BOLD);
+    g_font_small = make_font(13, FW_NORMAL);
 }
 
 static HICON create_app_icon() {
@@ -575,12 +575,11 @@ static HWND add_button(HWND parent, int id, const wchar_t* text, int x, int y, i
 }
 
 static void create_controls(HWND hwnd) {
-    add_label(hwnd, L"CONTROL", 28, 96, 120, 20);
-    g_status = add_label(hwnd, L"OFF - press F8", 600, 38, 135, 26);
+    g_status = add_label(hwnd, L"OFF - press F8", 615, 38, 135, 26);
     apply_font(g_status, g_font_small);
 
-    add_label(hwnd, L"Color to watch", 270, 112, 135, 24);
-    g_mode = add_combo(hwnd, IDC_MODE, 270, 138, 230, 180);
+    add_label(hwnd, L"Color to watch", 64, 166, 135, 22);
+    g_mode = add_combo(hwnd, IDC_MODE, 64, 192, 250, 180);
     combo_add(g_mode, L"Yellow outline");
     combo_add(g_mode, L"Red outline");
     combo_add(g_mode, L"Purple outline");
@@ -588,49 +587,49 @@ static void create_controls(HWND hwnd) {
     SendMessageW(g_mode, CB_SETCURSEL, 0, 0);
 
     g_preview = CreateWindowExW(WS_EX_CLIENTEDGE, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
-                                520, 138, 50, 28, hwnd, reinterpret_cast<HMENU>(IDC_PREVIEW),
+                                334, 192, 54, 28, hwnd, reinterpret_cast<HMENU>(IDC_PREVIEW),
                                 GetModuleHandleW(nullptr), nullptr);
 
-    add_label(hwnd, L"Key", 610, 112, 70, 24);
-    g_key = add_edit(hwnd, IDC_KEY, 610, 138, 110, 28, L"F");
+    add_label(hwnd, L"Key", 544, 166, 70, 22);
+    g_key = add_edit(hwnd, IDC_KEY, 544, 192, 132, 28, L"F");
 
-    add_label(hwnd, L"Action", 270, 190, 120, 24);
-    g_action = add_combo(hwnd, IDC_ACTION, 270, 216, 230, 120);
+    add_label(hwnd, L"Action", 64, 248, 120, 22);
+    g_action = add_combo(hwnd, IDC_ACTION, 64, 274, 250, 120);
     combo_add(g_action, L"Tap repeatedly");
     combo_add(g_action, L"Hold while visible");
     SendMessageW(g_action, CB_SETCURSEL, 0, 0);
 
-    add_label(hwnd, L"Reaction", 540, 190, 120, 24);
-    g_reaction_ms = add_edit(hwnd, IDC_REACTION_MS, 540, 216, 80, 28, L"0");
-    add_label(hwnd, L"ms", 630, 221, 40, 20);
+    add_label(hwnd, L"Reaction", 544, 248, 120, 22);
+    g_reaction_ms = add_edit(hwnd, IDC_REACTION_MS, 544, 274, 80, 28, L"0");
+    add_label(hwnd, L"ms", 636, 279, 40, 20);
 
-    add_label(hwnd, L"Tap interval", 270, 268, 120, 24);
-    g_press_interval_ms = add_edit(hwnd, IDC_PRESS_INTERVAL_MS, 270, 294, 90, 28, L"25");
-    add_label(hwnd, L"ms", 370, 299, 40, 20);
+    add_label(hwnd, L"Tap interval", 64, 330, 120, 22);
+    g_press_interval_ms = add_edit(hwnd, IDC_PRESS_INTERVAL_MS, 64, 356, 90, 28, L"25");
+    add_label(hwnd, L"ms", 166, 361, 40, 20);
 
-    add_label(hwnd, L"Detection", 430, 268, 120, 24);
-    g_sensitivity = add_combo(hwnd, IDC_SENSITIVITY, 430, 294, 150, 140);
+    add_label(hwnd, L"Detection", 236, 330, 120, 22);
+    g_sensitivity = add_combo(hwnd, IDC_SENSITIVITY, 236, 356, 150, 140);
     combo_add(g_sensitivity, L"Strict");
     combo_add(g_sensitivity, L"Normal");
     combo_add(g_sensitivity, L"Loose");
     SendMessageW(g_sensitivity, CB_SETCURSEL, 1, 0);
 
-    add_label(hwnd, L"Scan box", 620, 268, 100, 24);
-    g_box_w = add_edit(hwnd, IDC_BOX_W, 620, 294, 64, 28, L"40");
-    add_label(hwnd, L"x", 692, 299, 16, 20);
-    g_box_h = add_edit(hwnd, IDC_BOX_H, 712, 294, 64, 28, L"40");
+    add_label(hwnd, L"Scan box", 544, 330, 100, 22);
+    g_box_w = add_edit(hwnd, IDC_BOX_W, 544, 356, 64, 28, L"40");
+    add_label(hwnd, L"x", 618, 361, 16, 20);
+    g_box_h = add_edit(hwnd, IDC_BOX_H, 638, 356, 64, 28, L"40");
 
-    add_label(hwnd, L"Custom RGB", 270, 348, 120, 24);
-    g_custom_r = add_edit(hwnd, IDC_CUSTOM_R, 270, 374, 58, 28, L"255");
-    g_custom_g = add_edit(hwnd, IDC_CUSTOM_G, 338, 374, 58, 28, L"230");
-    g_custom_b = add_edit(hwnd, IDC_CUSTOM_B, 406, 374, 58, 28, L"0");
-    g_pick_color = add_button(hwnd, IDC_PICK_COLOR, L"PICK", 482, 372, 92, 32);
+    add_label(hwnd, L"Custom RGB", 64, 414, 120, 22);
+    g_custom_r = add_edit(hwnd, IDC_CUSTOM_R, 64, 440, 58, 28, L"255");
+    g_custom_g = add_edit(hwnd, IDC_CUSTOM_G, 134, 440, 58, 28, L"230");
+    g_custom_b = add_edit(hwnd, IDC_CUSTOM_B, 204, 440, 58, 28, L"0");
+    g_pick_color = add_button(hwnd, IDC_PICK_COLOR, L"PICK", 284, 438, 92, 32);
 
-    add_button(hwnd, IDC_START, L"START", 270, 444, 230, 44);
-    add_button(hwnd, IDC_STOP, L"STOP", 530, 444, 230, 44);
+    add_button(hwnd, IDC_START, L"START", 120, 498, 250, 44);
+    add_button(hwnd, IDC_STOP, L"STOP", 430, 498, 250, 44);
     EnableWindow(GetDlgItem(hwnd, IDC_STOP), FALSE);
 
-    add_label(hwnd, L"F8 start/stop    F9 stop", 365, 512, 250, 22);
+    add_label(hwnd, L"F8 start/stop    F9 stop", 300, 558, 250, 22);
     refresh_custom_controls();
     refresh_action_controls();
 }
@@ -694,44 +693,22 @@ static void paint_window(HWND hwnd) {
     GetClientRect(hwnd, &client);
     FillRect(dc, &client, g_bg_brush);
 
-    RECT sidebar{0, 0, 230, client.bottom};
-    fill_round(dc, sidebar, 0, RGB(17, 18, 23));
-
-    RECT brand{30, 34, 210, 68};
+    RECT brand{40, 28, 200, 62};
     draw_text(dc, L"minhan", brand, g_font_title, COLOR_TEXT, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    RECT dot{118, 34, 210, 68};
+    RECT dot{126, 28, 235, 62};
     draw_text(dc, L".time", dot, g_font_title, COLOR_ACCENT, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
 
-    RECT subtitle{32, 72, 200, 96};
+    RECT subtitle{42, 66, 230, 90};
     draw_text(dc, L"screen color control", subtitle, g_font_small, COLOR_MUTED, DT_LEFT | DT_SINGLELINE);
 
-    RECT nav1{24, 128, 206, 172};
-    fill_round(dc, nav1, 12, RGB(34, 30, 44));
-    RECT nav1_text{56, 138, 196, 166};
-    draw_text(dc, L"Trigger", nav1_text, g_font_bold, COLOR_TEXT, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    HPEN accent_pen = CreatePen(PS_SOLID, 4, COLOR_ACCENT);
-    HGDIOBJ old_pen = SelectObject(dc, accent_pen);
-    MoveToEx(dc, 34, 138, nullptr);
-    LineTo(dc, 34, 162);
-    SelectObject(dc, old_pen);
-    DeleteObject(accent_pen);
-
-    RECT nav2{24, 188, 206, 232};
-    RECT nav2_text{56, 198, 196, 226};
-    draw_text(dc, L"Timing", nav2_text, g_font_bold, COLOR_MUTED, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-
-    RECT nav3{24, 248, 206, 292};
-    RECT nav3_text{56, 258, 196, 286};
-    draw_text(dc, L"Config", nav3_text, g_font_bold, COLOR_MUTED, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-
-    RECT panel_left{250, 86, 596, 414};
-    RECT panel_right{610, 86, 790, 414};
+    RECT panel_left{40, 112, 500, 430};
+    RECT panel_right{520, 112, 760, 430};
     fill_round(dc, panel_left, 10, COLOR_PANEL);
     fill_round(dc, panel_right, 10, RGB(22, 23, 29));
 
-    RECT panel_title{270, 92, 520, 118};
+    RECT panel_title{64, 132, 360, 158};
     draw_text(dc, L"Trigger settings", panel_title, g_font_bold, COLOR_TEXT, DT_LEFT | DT_SINGLELINE);
-    RECT panel_title2{610, 92, 760, 118};
+    RECT panel_title2{544, 132, 720, 158};
     draw_text(dc, L"Key + scan", panel_title2, g_font_bold, COLOR_TEXT, DT_LEFT | DT_SINGLELINE);
 
     EndPaint(hwnd, &ps);
@@ -880,7 +857,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_cmd) {
 
     g_main = CreateWindowExW(0, class_name, L"minhan-time",
                              WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                             CW_USEDEFAULT, CW_USEDEFAULT, 815, 600,
+                             CW_USEDEFAULT, CW_USEDEFAULT, 800, 635,
                              nullptr, nullptr, instance, nullptr);
     if (!g_main) return 1;
 
