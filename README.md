@@ -16,8 +16,9 @@ For Windows, use:
 
 - Yellow, red, purple, and custom color modes
 - Configurable key to press
+- Tap repeatedly or hold the key while the color is visible
 - Custom reaction delay in milliseconds
-- Custom press interval in milliseconds
+- Custom tap interval in milliseconds
 - Detection strictness presets
 - Custom scan box width and height
 - F8 toggles start/stop
@@ -28,7 +29,7 @@ For Windows, use:
 1. Run `colorbot.exe` on Windows.
 2. Pick a color mode.
 3. Pick the key to press.
-4. Pick the press rate.
+4. Pick `Tap repeatedly` or `Hold while visible`.
 5. Click `START`.
 6. Use `F8` to toggle on/off and `F9` to stop.
 

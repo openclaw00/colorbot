@@ -10,7 +10,8 @@
   Use:
     1. Pick a color mode: Yellow, Red, Purple, or Custom.
     2. Pick the key to press.
-    3. Set reaction delay, press interval, and scan box size.
+    3. Pick tap mode or hold mode.
+    4. Set reaction delay, press interval, and scan box size.
     4. Click START.
     5. Press F8 to turn it on/off while in another program.
     6. Press F9 to stop immediately.
@@ -29,13 +30,13 @@
 #include <cstdlib>
 #include <cwctype>
 #include <mutex>
-#include <random>
 #include <string>
 #include <thread>
 
 enum : int {
     IDC_MODE = 1001,
     IDC_KEY,
+    IDC_ACTION,
     IDC_REACTION_MS,
     IDC_PRESS_INTERVAL_MS,
     IDC_BOX_W,
@@ -52,10 +53,12 @@ enum : int {
 };
 
 enum class ColorMode { Yellow = 0, Red = 1, Purple = 2, Custom = 3 };
+enum class ActionMode { TapRepeatedly = 0, HoldWhileVisible = 1 };
 enum class SensitivityMode { Strict = 0, Normal = 1, Loose = 2 };
 
 struct Config {
     ColorMode color_mode = ColorMode::Yellow;
+    ActionMode action_mode = ActionMode::TapRepeatedly;
     SensitivityMode sensitivity = SensitivityMode::Normal;
     WORD vk = 'F';
     int box_w = 40;
@@ -135,6 +138,7 @@ struct CaptureBuffer {
 static HWND g_main = nullptr;
 static HWND g_mode = nullptr;
 static HWND g_key = nullptr;
+static HWND g_action = nullptr;
 static HWND g_reaction_ms = nullptr;
 static HWND g_press_interval_ms = nullptr;
 static HWND g_box_w = nullptr;
@@ -155,12 +159,6 @@ static std::thread g_worker;
 
 static int clamp_int(int v, int lo, int hi) {
     return std::max(lo, std::min(v, hi));
-}
-
-static int rand_range(std::mt19937& rng, int lo, int hi) {
-    if (hi <= lo) return lo;
-    std::uniform_int_distribution<int> dist(lo, hi);
-    return dist(rng);
 }
 
 static void set_text(HWND hwnd, const wchar_t* text) {
@@ -251,6 +249,7 @@ static void set_sensitivity(Config& cfg) {
 static Config read_config_from_ui() {
     Config cfg;
     cfg.color_mode = static_cast<ColorMode>(combo_index(g_mode));
+    cfg.action_mode = static_cast<ActionMode>(combo_index(g_action));
     cfg.sensitivity = static_cast<SensitivityMode>(combo_index(g_sensitivity));
     cfg.vk = parse_key(g_key);
     cfg.reaction_ms = get_int(g_reaction_ms, 0, 0, 10000);
@@ -316,18 +315,14 @@ static bool contains_target_color(const uint8_t* pixels, int width, int height, 
     return false;
 }
 
-static void send_key(WORD vk, const Config& cfg) {
-    if (cfg.reaction_ms > 0) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(cfg.reaction_ms));
-    }
-
+static void key_down(WORD vk) {
     INPUT down{};
     down.type = INPUT_KEYBOARD;
     down.ki.wVk = vk;
     SendInput(1, &down, sizeof(INPUT));
+}
 
-    std::this_thread::sleep_for(std::chrono::milliseconds(cfg.hold_ms));
-
+static void key_up(WORD vk) {
     INPUT up{};
     up.type = INPUT_KEYBOARD;
     up.ki.wVk = vk;
@@ -335,12 +330,22 @@ static void send_key(WORD vk, const Config& cfg) {
     SendInput(1, &up, sizeof(INPUT));
 }
 
+static void tap_key(WORD vk, const Config& cfg) {
+    if (cfg.reaction_ms > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(cfg.reaction_ms));
+    }
+
+    key_down(vk);
+    std::this_thread::sleep_for(std::chrono::milliseconds(cfg.hold_ms));
+    key_up(vk);
+}
+
 static void worker_loop() {
-    std::random_device rd;
-    std::mt19937 rng(rd());
     CaptureBuffer capture;
     int last_w = 0;
     int last_h = 0;
+    bool key_is_down = false;
+    WORD held_vk = 0;
 
     using clock = std::chrono::steady_clock;
     auto next_allowed = clock::now();
@@ -358,12 +363,32 @@ static void worker_loop() {
             last_h = cfg.box_h;
         }
 
-        if (capture.capture_center() && contains_target_color(capture.pixels, cfg.box_w, cfg.box_h, cfg)) {
+        const bool visible =
+            capture.capture_center() && contains_target_color(capture.pixels, cfg.box_w, cfg.box_h, cfg);
+
+        if (cfg.action_mode == ActionMode::HoldWhileVisible) {
+            if (visible && !key_is_down) {
+                if (cfg.reaction_ms > 0) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(cfg.reaction_ms));
+                }
+                key_down(cfg.vk);
+                key_is_down = true;
+                held_vk = cfg.vk;
+            } else if (!visible && key_is_down) {
+                key_up(held_vk);
+                key_is_down = false;
+                held_vk = 0;
+            }
+        } else if (visible) {
             const auto now = clock::now();
             if (now >= next_allowed) {
                 next_allowed = now + std::chrono::milliseconds(cfg.press_interval_ms);
-                send_key(cfg.vk, cfg);
+                tap_key(cfg.vk, cfg);
             }
+        } else if (key_is_down) {
+            key_up(held_vk);
+            key_is_down = false;
+            held_vk = 0;
         }
 
         if (cfg.loop_sleep_ms > 0) {
@@ -371,6 +396,10 @@ static void worker_loop() {
         } else {
             std::this_thread::yield();
         }
+    }
+
+    if (key_is_down) {
+        key_up(held_vk);
     }
 }
 
@@ -381,6 +410,11 @@ static void refresh_custom_controls() {
     EnableWindow(g_custom_b, custom ? TRUE : FALSE);
     EnableWindow(g_pick_color, custom ? TRUE : FALSE);
     InvalidateRect(g_preview, nullptr, TRUE);
+}
+
+static void refresh_action_controls() {
+    const bool tap_mode = static_cast<ActionMode>(combo_index(g_action)) == ActionMode::TapRepeatedly;
+    EnableWindow(g_press_interval_ms, tap_mode ? TRUE : FALSE);
 }
 
 static void set_running_ui(bool running) {
@@ -456,39 +490,46 @@ static void create_controls(HWND hwnd) {
     g_key = add_edit(hwnd, IDC_KEY, 160, 104, 100, 26, L"F");
     add_label(hwnd, L"Examples: F, E, SPACE, SHIFT, CTRL", 280, 108, 240, 20);
 
-    add_label(hwnd, L"Reaction delay", 24, 154, 120, 20);
-    g_reaction_ms = add_edit(hwnd, IDC_REACTION_MS, 160, 150, 100, 26, L"0");
-    add_label(hwnd, L"ms before pressing after color appears", 280, 154, 250, 20);
+    add_label(hwnd, L"Action", 24, 154, 120, 20);
+    g_action = add_combo(hwnd, IDC_ACTION, 160, 150, 220, 120);
+    combo_add(g_action, L"Tap repeatedly");
+    combo_add(g_action, L"Hold while visible");
+    SendMessageW(g_action, CB_SETCURSEL, 0, 0);
 
-    add_label(hwnd, L"Press interval", 24, 200, 120, 20);
-    g_press_interval_ms = add_edit(hwnd, IDC_PRESS_INTERVAL_MS, 160, 196, 100, 26, L"25");
-    add_label(hwnd, L"ms between presses while visible", 280, 200, 230, 20);
+    add_label(hwnd, L"Reaction delay", 24, 200, 120, 20);
+    g_reaction_ms = add_edit(hwnd, IDC_REACTION_MS, 160, 196, 100, 26, L"0");
+    add_label(hwnd, L"ms before pressing after color appears", 280, 200, 250, 20);
 
-    add_label(hwnd, L"Detection", 24, 246, 120, 20);
-    g_sensitivity = add_combo(hwnd, IDC_SENSITIVITY, 160, 242, 220, 150);
+    add_label(hwnd, L"Tap interval", 24, 246, 120, 20);
+    g_press_interval_ms = add_edit(hwnd, IDC_PRESS_INTERVAL_MS, 160, 242, 100, 26, L"25");
+    add_label(hwnd, L"ms between taps, ignored in hold mode", 280, 246, 250, 20);
+
+    add_label(hwnd, L"Detection", 24, 292, 120, 20);
+    g_sensitivity = add_combo(hwnd, IDC_SENSITIVITY, 160, 288, 220, 150);
     combo_add(g_sensitivity, L"Strict");
     combo_add(g_sensitivity, L"Normal");
     combo_add(g_sensitivity, L"Loose");
     SendMessageW(g_sensitivity, CB_SETCURSEL, 1, 0);
 
-    add_label(hwnd, L"Scan box size", 24, 292, 120, 20);
-    g_box_w = add_edit(hwnd, IDC_BOX_W, 160, 288, 70, 26, L"40");
-    add_label(hwnd, L"x", 238, 292, 16, 20);
-    g_box_h = add_edit(hwnd, IDC_BOX_H, 260, 288, 70, 26, L"40");
-    add_label(hwnd, L"pixels, centered on screen", 350, 292, 170, 20);
+    add_label(hwnd, L"Scan box size", 24, 338, 120, 20);
+    g_box_w = add_edit(hwnd, IDC_BOX_W, 160, 334, 70, 26, L"40");
+    add_label(hwnd, L"x", 238, 338, 16, 20);
+    g_box_h = add_edit(hwnd, IDC_BOX_H, 260, 334, 70, 26, L"40");
+    add_label(hwnd, L"pixels, centered on screen", 350, 338, 170, 20);
 
-    add_label(hwnd, L"Custom RGB", 24, 338, 120, 20);
-    g_custom_r = add_edit(hwnd, IDC_CUSTOM_R, 160, 334, 54, 26, L"255");
-    g_custom_g = add_edit(hwnd, IDC_CUSTOM_G, 222, 334, 54, 26, L"230");
-    g_custom_b = add_edit(hwnd, IDC_CUSTOM_B, 284, 334, 54, 26, L"0");
-    g_pick_color = add_button(hwnd, IDC_PICK_COLOR, L"Pick", 354, 333, 70, 28);
+    add_label(hwnd, L"Custom RGB", 24, 384, 120, 20);
+    g_custom_r = add_edit(hwnd, IDC_CUSTOM_R, 160, 380, 54, 26, L"255");
+    g_custom_g = add_edit(hwnd, IDC_CUSTOM_G, 222, 380, 54, 26, L"230");
+    g_custom_b = add_edit(hwnd, IDC_CUSTOM_B, 284, 380, 54, 26, L"0");
+    g_pick_color = add_button(hwnd, IDC_PICK_COLOR, L"Pick", 354, 379, 70, 28);
 
-    add_button(hwnd, IDC_START, L"START", 110, 386, 145, 42);
-    add_button(hwnd, IDC_STOP, L"STOP", 275, 386, 145, 42);
+    add_button(hwnd, IDC_START, L"START", 110, 432, 145, 42);
+    add_button(hwnd, IDC_STOP, L"STOP", 275, 432, 145, 42);
     EnableWindow(GetDlgItem(hwnd, IDC_STOP), FALSE);
 
-    add_label(hwnd, L"Hotkeys: F8 start/stop   F9 stop", 140, 448, 260, 20);
+    add_label(hwnd, L"Hotkeys: F8 start/stop   F9 stop", 140, 494, 260, 20);
     refresh_custom_controls();
+    refresh_action_controls();
 }
 
 static COLORREF preview_color() {
@@ -543,6 +584,9 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
             return 0;
         case IDC_MODE:
             if (HIWORD(wparam) == CBN_SELCHANGE) refresh_custom_controls();
+            return 0;
+        case IDC_ACTION:
+            if (HIWORD(wparam) == CBN_SELCHANGE) refresh_action_controls();
             return 0;
         case IDC_CUSTOM_R:
         case IDC_CUSTOM_G:
@@ -602,7 +646,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_cmd) {
 
     g_main = CreateWindowExW(0, class_name, L"ColorBot",
                              WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                             CW_USEDEFAULT, CW_USEDEFAULT, 545, 525,
+                             CW_USEDEFAULT, CW_USEDEFAULT, 545, 575,
                              nullptr, nullptr, instance, nullptr);
     if (!g_main) return 1;
 
