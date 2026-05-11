@@ -1035,6 +1035,9 @@ static void draw_text(HDC dc, const wchar_t* text, RECT rect, HFONT font, COLORR
 struct SelectData {
     std::vector<std::wstring> items;
     int selected = -1;
+    bool open = false;
+    RECT closed_rect{};
+    int closed_height = 38;
 };
 
 static SelectData* select_data(HWND hwnd) {
@@ -1042,11 +1045,17 @@ static SelectData* select_data(HWND hwnd) {
 }
 
 static void close_select_popup() {
-    if (g_popup_list) {
-        DestroyWindow(g_popup_list);
-        g_popup_list = nullptr;
-        g_popup_owner = nullptr;
+    if (!g_popup_owner) return;
+    SelectData* data = select_data(g_popup_owner);
+    if (data) {
+        data->open = false;
+        SetWindowPos(g_popup_owner, HWND_TOP, data->closed_rect.left, data->closed_rect.top,
+                     data->closed_rect.right - data->closed_rect.left,
+                     data->closed_rect.bottom - data->closed_rect.top,
+                     SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        InvalidateRect(g_popup_owner, nullptr, TRUE);
     }
+    g_popup_owner = nullptr;
 }
 
 static void notify_select_change(HWND hwnd) {
@@ -1056,7 +1065,7 @@ static void notify_select_change(HWND hwnd) {
 }
 
 static void choose_popup_index(int index) {
-    if (!g_popup_list || !g_popup_owner) return;
+    if (!g_popup_owner) return;
     SelectData* data = select_data(g_popup_owner);
     if (!data) return;
     if (index >= 0 && index < static_cast<int>(data->items.size())) {
@@ -1132,31 +1141,22 @@ static void show_select_popup(HWND hwnd) {
     HWND parent = GetParent(hwnd);
     RECT select_rect{};
     GetWindowRect(hwnd, &select_rect);
+    POINT top_left{select_rect.left, select_rect.top};
+    POINT bottom_right{select_rect.right, select_rect.bottom};
+    ScreenToClient(parent, &top_left);
+    ScreenToClient(parent, &bottom_right);
 
     const int row_h = 30;
     const int rows = clamp_int(static_cast<int>(data->items.size()), 1, 5);
-    const int width = select_rect.right - select_rect.left;
-    const int height = rows * row_h + 2;
-    RECT work_area{};
-    SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0);
-    int popup_y = select_rect.bottom + 4;
-    if (popup_y + height > work_area.bottom - 8) {
-        popup_y = select_rect.top - height - 4;
-    }
-
+    const int width = bottom_right.x - top_left.x;
+    data->closed_rect = RECT{top_left.x, top_left.y, bottom_right.x, bottom_right.y};
+    data->closed_height = bottom_right.y - top_left.y;
+    data->open = true;
     g_popup_owner = hwnd;
-    g_popup_list = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, POPUP_CLASS_NAME, L"",
-                                   WS_POPUP,
-                                   select_rect.left, popup_y, width, height,
-                                   parent, reinterpret_cast<HMENU>(IDC_SELECT_POPUP),
-                                   GetModuleHandleW(nullptr), nullptr);
-    if (!g_popup_list) {
-        g_popup_owner = nullptr;
-        return;
-    }
-
-    SetWindowPos(g_popup_list, HWND_TOPMOST, select_rect.left, popup_y, width, height, SWP_SHOWWINDOW);
-    SetFocus(g_popup_list);
+    SetWindowPos(hwnd, HWND_TOP, top_left.x, top_left.y, width,
+                 data->closed_height + 4 + rows * row_h + 2,
+                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    InvalidateRect(hwnd, nullptr, TRUE);
 }
 
 static LRESULT CALLBACK select_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -1206,7 +1206,16 @@ static LRESULT CALLBACK select_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         return 0;
 
     case WM_LBUTTONDOWN:
-        show_select_popup(hwnd);
+        if (data && data->open) {
+            const int y = GET_Y_LPARAM(lparam);
+            if (y <= data->closed_height) {
+                close_select_popup();
+            } else {
+                choose_popup_index((y - data->closed_height - 4) / 30);
+            }
+        } else {
+            show_select_popup(hwnd);
+        }
         return 0;
 
     case WM_PAINT: {
@@ -1215,10 +1224,11 @@ static LRESULT CALLBACK select_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         RECT r{};
         GetClientRect(hwnd, &r);
         const bool disabled = !IsWindowEnabled(hwnd);
-        fill_round(dc, r, 10, disabled ? RGB(16, 17, 22) : COLOR_INPUT);
-        stroke_round(dc, r, 10, disabled ? RGB(30, 34, 42) : COLOR_INPUT_BORDER);
+        RECT closed{0, 0, r.right, data ? data->closed_height : r.bottom};
+        fill_round(dc, closed, 10, disabled ? RGB(16, 17, 22) : COLOR_INPUT);
+        stroke_round(dc, closed, 10, disabled ? RGB(30, 34, 42) : COLOR_INPUT_BORDER);
 
-        RECT text_rect = r;
+        RECT text_rect = closed;
         text_rect.left += 14;
         text_rect.right -= 42;
         const wchar_t* text = L"";
@@ -1230,13 +1240,35 @@ static LRESULT CALLBACK select_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
 
         HPEN pen = CreatePen(PS_SOLID, 2, disabled ? COLOR_MUTED : COLOR_TEXT);
         HGDIOBJ old_pen = SelectObject(dc, pen);
-        const int cx = r.right - 22;
-        const int cy = (r.bottom - r.top) / 2;
+        const int cx = closed.right - 22;
+        const int cy = (closed.bottom - closed.top) / 2;
         MoveToEx(dc, cx - 5, cy - 2, nullptr);
         LineTo(dc, cx, cy + 4);
         LineTo(dc, cx + 5, cy - 2);
         SelectObject(dc, old_pen);
         DeleteObject(pen);
+
+        if (data && data->open) {
+            RECT list_rect{0, data->closed_height + 4, r.right, r.bottom};
+            fill_round(dc, list_rect, 8, COLOR_INPUT);
+            stroke_round(dc, list_rect, 8, COLOR_INPUT_BORDER);
+            const int visible_rows = clamp_int(static_cast<int>(data->items.size()), 1, 5);
+            for (int i = 0; i < visible_rows; ++i) {
+                RECT item_rect{1, data->closed_height + 5 + i * 30, r.right - 1,
+                               data->closed_height + 5 + (i + 1) * 30};
+                if (i == data->selected) {
+                    HBRUSH brush = CreateSolidBrush(RGB(32, 25, 43));
+                    FillRect(dc, &item_rect, brush);
+                    DeleteObject(brush);
+                }
+                RECT item_text = item_rect;
+                item_text.left += 12;
+                item_text.right -= 12;
+                draw_text(dc, data->items[i].c_str(), item_text, g_font,
+                          i == data->selected ? COLOR_ACCENT_HOVER : COLOR_TEXT,
+                          DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+            }
+        }
 
         EndPaint(hwnd, &ps);
         return 0;
