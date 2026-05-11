@@ -184,8 +184,8 @@ static HFONT g_font_small = nullptr;
 static HICON g_app_icon = nullptr;
 static HWND g_popup_list = nullptr;
 static HWND g_popup_owner = nullptr;
-static WNDPROC g_popup_old_proc = nullptr;
 static const wchar_t SELECT_CLASS_NAME[] = L"MinhanSelect";
+static const wchar_t POPUP_CLASS_NAME[] = L"MinhanSelectPopup";
 static std::vector<RECT> g_input_frames;
 
 static constexpr COLORREF COLOR_BG = RGB(9, 9, 11);
@@ -1046,7 +1046,6 @@ static void close_select_popup() {
         DestroyWindow(g_popup_list);
         g_popup_list = nullptr;
         g_popup_owner = nullptr;
-        g_popup_old_proc = nullptr;
     }
 }
 
@@ -1056,25 +1055,68 @@ static void notify_select_change(HWND hwnd) {
     SendMessageW(parent, WM_COMMAND, MAKEWPARAM(id, CBN_SELCHANGE), reinterpret_cast<LPARAM>(hwnd));
 }
 
-static void choose_popup_item();
-
-static LRESULT CALLBACK popup_list_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-    if (msg == WM_ERASEBKGND) {
-        RECT r{};
-        GetClientRect(hwnd, &r);
-        FillRect(reinterpret_cast<HDC>(wparam), &r, g_input_brush);
-        return 1;
+static void choose_popup_index(int index) {
+    if (!g_popup_list || !g_popup_owner) return;
+    SelectData* data = select_data(g_popup_owner);
+    if (!data) return;
+    if (index >= 0 && index < static_cast<int>(data->items.size())) {
+        data->selected = index;
+        InvalidateRect(g_popup_owner, nullptr, TRUE);
+        notify_select_change(g_popup_owner);
     }
-    if (msg == WM_KEYDOWN && wparam == VK_ESCAPE) {
-        close_select_popup();
+    close_select_popup();
+}
+
+static LRESULT CALLBACK popup_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+    switch (msg) {
+    case WM_ERASEBKGND:
+        return 1;
+
+    case WM_KEYDOWN:
+        if (wparam == VK_ESCAPE) {
+            close_select_popup();
+            return 0;
+        }
+        break;
+
+    case WM_LBUTTONDOWN: {
+        const int y = GET_Y_LPARAM(lparam);
+        choose_popup_index(y / 30);
         return 0;
     }
-    if (msg == WM_LBUTTONUP) {
-        LRESULT result = CallWindowProcW(g_popup_old_proc, hwnd, msg, wparam, lparam);
-        choose_popup_item();
-        return result;
+
+    case WM_PAINT: {
+        PAINTSTRUCT ps{};
+        HDC dc = BeginPaint(hwnd, &ps);
+        RECT r{};
+        GetClientRect(hwnd, &r);
+        FillRect(dc, &r, g_input_brush);
+        stroke_round(dc, r, 8, COLOR_INPUT_BORDER);
+
+        SelectData* data = g_popup_owner ? select_data(g_popup_owner) : nullptr;
+        if (data) {
+            for (int i = 0; i < static_cast<int>(data->items.size()); ++i) {
+                RECT item_rect{1, 1 + i * 30, r.right - 1, 1 + (i + 1) * 30};
+                if (i == data->selected) {
+                    HBRUSH brush = CreateSolidBrush(RGB(32, 25, 43));
+                    FillRect(dc, &item_rect, brush);
+                    DeleteObject(brush);
+                }
+                RECT text_rect = item_rect;
+                text_rect.left += 12;
+                text_rect.right -= 12;
+                draw_text(dc, data->items[i].c_str(), text_rect, g_font,
+                          i == data->selected ? COLOR_ACCENT_HOVER : COLOR_TEXT,
+                          DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+            }
+        }
+
+        EndPaint(hwnd, &ps);
+        return 0;
     }
-    return CallWindowProcW(g_popup_old_proc, hwnd, msg, wparam, lparam);
+    }
+
+    return DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 static void show_select_popup(HWND hwnd) {
@@ -1103,9 +1145,8 @@ static void show_select_popup(HWND hwnd) {
     }
 
     g_popup_owner = hwnd;
-    g_popup_list = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, L"LISTBOX", L"",
-                                   WS_POPUP | WS_BORDER |
-                                       LBS_NOTIFY | LBS_HASSTRINGS | LBS_OWNERDRAWFIXED | LBS_NOINTEGRALHEIGHT,
+    g_popup_list = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, POPUP_CLASS_NAME, L"",
+                                   WS_POPUP,
                                    select_rect.left, popup_y, width, height,
                                    parent, reinterpret_cast<HMENU>(IDC_SELECT_POPUP),
                                    GetModuleHandleW(nullptr), nullptr);
@@ -1114,28 +1155,8 @@ static void show_select_popup(HWND hwnd) {
         return;
     }
 
-    apply_font(g_popup_list, g_font);
-    for (const std::wstring& item : data->items) {
-        SendMessageW(g_popup_list, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item.c_str()));
-    }
-    SendMessageW(g_popup_list, LB_SETCURSEL, data->selected, 0);
-    g_popup_old_proc = reinterpret_cast<WNDPROC>(
-        SetWindowLongPtrW(g_popup_list, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(popup_list_proc)));
     SetWindowPos(g_popup_list, HWND_TOPMOST, select_rect.left, popup_y, width, height, SWP_SHOWWINDOW);
     SetFocus(g_popup_list);
-}
-
-static void choose_popup_item() {
-    if (!g_popup_list || !g_popup_owner) return;
-    SelectData* data = select_data(g_popup_owner);
-    if (!data) return;
-    const int index = static_cast<int>(SendMessageW(g_popup_list, LB_GETCURSEL, 0, 0));
-    if (index >= 0 && index < static_cast<int>(data->items.size())) {
-        data->selected = index;
-        InvalidateRect(g_popup_owner, nullptr, TRUE);
-        notify_select_change(g_popup_owner);
-    }
-    close_select_popup();
 }
 
 static LRESULT CALLBACK select_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -1361,11 +1382,6 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         return 0;
 
     case WM_COMMAND:
-        if (reinterpret_cast<HWND>(lparam) == g_popup_list &&
-            (HIWORD(wparam) == LBN_SELCHANGE || HIWORD(wparam) == LBN_DBLCLK)) {
-            choose_popup_item();
-            return 0;
-        }
         switch (LOWORD(wparam)) {
         case IDC_TITLE_MINIMIZE:
             ShowWindow(hwnd, SW_MINIMIZE);
@@ -1429,18 +1445,7 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         return HTCLIENT;
     }
 
-    case WM_MEASUREITEM:
-        if (wparam == IDC_SELECT_POPUP) {
-            reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->itemHeight = 30;
-            return TRUE;
-        }
-        break;
-
     case WM_DRAWITEM:
-        if (wparam == IDC_SELECT_POPUP) {
-            draw_popup_item(reinterpret_cast<const DRAWITEMSTRUCT*>(lparam));
-            return TRUE;
-        }
         draw_owner_button(reinterpret_cast<const DRAWITEMSTRUCT*>(lparam));
         return TRUE;
 
@@ -1520,6 +1525,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show_cmd) {
     select_wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     select_wc.hbrBackground = g_bg_brush;
     if (!RegisterClassW(&select_wc)) return 1;
+
+    WNDCLASSW popup_wc{};
+    popup_wc.lpfnWndProc = popup_proc;
+    popup_wc.hInstance = instance;
+    popup_wc.lpszClassName = POPUP_CLASS_NAME;
+    popup_wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    popup_wc.hbrBackground = g_input_brush;
+    if (!RegisterClassW(&popup_wc)) return 1;
 
     g_main = CreateWindowExW(WS_EX_APPWINDOW, class_name, L"minhan-time",
                              WS_POPUP | WS_MINIMIZEBOX,
