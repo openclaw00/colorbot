@@ -885,8 +885,10 @@ static HWND add_edit(HWND parent, int id, int x, int y, int w, int h, const wcha
 }
 
 static HWND add_combo(HWND parent, int id, int x, int y, int w, int h) {
-    HWND hwnd = CreateWindowExW(0, SELECT_CLASS_NAME, L"", WS_CHILD | WS_VISIBLE,
-                                x, y, w, h, parent, reinterpret_cast<HMENU>(id), GetModuleHandleW(nullptr), nullptr);
+    HWND hwnd = CreateWindowExW(0, L"COMBOBOX", L"",
+                                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+                                x, y, w, h, parent, reinterpret_cast<HMENU>(id),
+                                GetModuleHandleW(nullptr), nullptr);
     apply_font(hwnd, g_font);
     return hwnd;
 }
@@ -903,7 +905,7 @@ static void create_controls(HWND hwnd) {
     add_button(hwnd, IDC_TITLE_CLOSE, L"x", 644, 8, 34, 28);
 
     add_label(hwnd, L"Color", 44, 110, 90, 20);
-    g_mode = add_combo(hwnd, IDC_MODE, 44, 134, 248, 38);
+    g_mode = add_combo(hwnd, IDC_MODE, 44, 134, 248, 150);
     combo_add(g_mode, L"Yellow outline");
     combo_add(g_mode, L"Red outline");
     combo_add(g_mode, L"Purple outline");
@@ -918,7 +920,7 @@ static void create_controls(HWND hwnd) {
     g_key = add_edit(hwnd, IDC_KEY, 448, 134, 144, 38, L"F");
 
     add_label(hwnd, L"Action", 44, 190, 100, 20);
-    g_action = add_combo(hwnd, IDC_ACTION, 44, 214, 248, 38);
+    g_action = add_combo(hwnd, IDC_ACTION, 44, 214, 248, 110);
     combo_add(g_action, L"Tap repeatedly");
     combo_add(g_action, L"Hold while visible");
     SendMessageW(g_action, CB_SETCURSEL, 0, 0);
@@ -932,7 +934,7 @@ static void create_controls(HWND hwnd) {
     add_label(hwnd, L"ms", 142, 304, 35, 18);
 
     add_label(hwnd, L"Detection", 200, 270, 95, 20);
-    g_sensitivity = add_combo(hwnd, IDC_SENSITIVITY, 200, 294, 150, 38);
+    g_sensitivity = add_combo(hwnd, IDC_SENSITIVITY, 200, 294, 150, 110);
     combo_add(g_sensitivity, L"Strict");
     combo_add(g_sensitivity, L"Normal");
     combo_add(g_sensitivity, L"Loose");
@@ -950,7 +952,7 @@ static void create_controls(HWND hwnd) {
     g_pick_color = add_button(hwnd, IDC_PICK_COLOR, L"PICK", 304, 374, 86, 38);
 
     g_config_name = add_edit(hwnd, IDC_CONFIG_NAME, 160, 452, 150, 38, L"default");
-    g_config_list = add_combo(hwnd, IDC_CONFIG_LIST, 326, 452, 154, 38);
+    g_config_list = add_combo(hwnd, IDC_CONFIG_LIST, 326, 452, 154, 120);
     add_button(hwnd, IDC_LOAD_CONFIG, L"LOAD", 496, 452, 64, 38);
     add_button(hwnd, IDC_DELETE_CONFIG, L"DEL", 576, 452, 52, 38);
 
