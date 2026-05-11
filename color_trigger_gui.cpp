@@ -951,10 +951,11 @@ static void create_controls(HWND hwnd) {
     g_custom_b = add_edit(hwnd, IDC_CUSTOM_B, 212, 374, 70, 38, L"0");
     g_pick_color = add_button(hwnd, IDC_PICK_COLOR, L"PICK", 304, 374, 86, 38);
 
-    g_config_name = add_edit(hwnd, IDC_CONFIG_NAME, 160, 452, 150, 38, L"default");
-    g_config_list = add_combo(hwnd, IDC_CONFIG_LIST, 326, 452, 154, 120);
-    add_button(hwnd, IDC_LOAD_CONFIG, L"LOAD", 496, 452, 64, 38);
-    add_button(hwnd, IDC_DELETE_CONFIG, L"DEL", 576, 452, 52, 38);
+    g_config_name = add_edit(hwnd, IDC_CONFIG_NAME, 44, 452, 150, 38, L"default");
+    g_config_list = add_combo(hwnd, IDC_CONFIG_LIST, 210, 452, 180, 120);
+    add_button(hwnd, IDC_SAVE_CONFIG, L"SAVE", 406, 452, 64, 38);
+    add_button(hwnd, IDC_LOAD_CONFIG, L"LOAD", 486, 452, 64, 38);
+    add_button(hwnd, IDC_DELETE_CONFIG, L"DEL", 566, 452, 62, 38);
 
     add_button(hwnd, IDC_START, L"START", 20, 510, 302, 46);
     add_button(hwnd, IDC_STOP, L"STOP", 342, 510, 302, 46);
@@ -1324,9 +1325,6 @@ static void paint_window(HWND hwnd) {
     draw_text(dc, L"TRIGGER SETTINGS", panel_title, g_font_title, COLOR_ACCENT_HOVER, DT_LEFT | DT_SINGLELINE);
     RECT panel_title2{448, 88, 620, 112};
     draw_text(dc, L"SCAN SETTINGS", panel_title2, g_font_title, COLOR_ACCENT_HOVER, DT_LEFT | DT_SINGLELINE);
-    RECT panel_title3{44, 461, 152, 482};
-    draw_text(dc, L"SAVED CONFIG", panel_title3, g_font_bold, COLOR_TEXT, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-
     EndPaint(hwnd, &ps);
 }
 
