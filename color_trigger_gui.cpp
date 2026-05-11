@@ -1057,10 +1057,17 @@ static void notify_select_change(HWND hwnd) {
     SendMessageW(parent, WM_COMMAND, MAKEWPARAM(id, CBN_SELCHANGE), reinterpret_cast<LPARAM>(hwnd));
 }
 
+static void choose_popup_item();
+
 static LRESULT CALLBACK popup_list_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     if (msg == WM_KEYDOWN && wparam == VK_ESCAPE) {
         close_select_popup();
         return 0;
+    }
+    if (msg == WM_LBUTTONUP) {
+        LRESULT result = CallWindowProcW(g_popup_old_proc, hwnd, msg, wparam, lparam);
+        choose_popup_item();
+        return result;
     }
     return CallWindowProcW(g_popup_old_proc, hwnd, msg, wparam, lparam);
 }
@@ -1071,18 +1078,30 @@ static void show_select_popup(HWND hwnd) {
 
     close_select_popup();
 
-    RECT screen_rect{};
-    GetWindowRect(hwnd, &screen_rect);
+    HWND parent = GetParent(hwnd);
+    RECT select_rect{};
+    GetWindowRect(hwnd, &select_rect);
+    POINT top_left{select_rect.left, select_rect.top};
+    POINT bottom_right{select_rect.right, select_rect.bottom};
+    ScreenToClient(parent, &top_left);
+    ScreenToClient(parent, &bottom_right);
+
     const int row_h = 30;
     const int rows = clamp_int(static_cast<int>(data->items.size()), 1, 5);
-    const int width = screen_rect.right - screen_rect.left;
+    const int width = bottom_right.x - top_left.x;
     const int height = rows * row_h + 2;
+    RECT parent_rect{};
+    GetClientRect(parent, &parent_rect);
+    int popup_y = bottom_right.y + 4;
+    if (popup_y + height > parent_rect.bottom - 8) {
+        popup_y = top_left.y - height - 4;
+    }
 
     g_popup_owner = hwnd;
-    g_popup_list = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, L"LISTBOX", L"",
-                                   WS_POPUP | WS_BORDER | LBS_NOTIFY | LBS_HASSTRINGS,
-                                   screen_rect.left, screen_rect.bottom + 4, width, height,
-                                   GetParent(hwnd), reinterpret_cast<HMENU>(IDC_SELECT_POPUP),
+    g_popup_list = CreateWindowExW(0, L"LISTBOX", L"",
+                                   WS_CHILD | WS_VISIBLE | WS_BORDER | LBS_NOTIFY | LBS_HASSTRINGS,
+                                   top_left.x, popup_y, width, height,
+                                   parent, reinterpret_cast<HMENU>(IDC_SELECT_POPUP),
                                    GetModuleHandleW(nullptr), nullptr);
     if (!g_popup_list) {
         g_popup_owner = nullptr;
@@ -1096,7 +1115,7 @@ static void show_select_popup(HWND hwnd) {
     SendMessageW(g_popup_list, LB_SETCURSEL, data->selected, 0);
     g_popup_old_proc = reinterpret_cast<WNDPROC>(
         SetWindowLongPtrW(g_popup_list, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(popup_list_proc)));
-    ShowWindow(g_popup_list, SW_SHOWNOACTIVATE);
+    SetWindowPos(g_popup_list, HWND_TOP, top_left.x, popup_y, width, height, SWP_SHOWWINDOW);
     SetFocus(g_popup_list);
 }
 
