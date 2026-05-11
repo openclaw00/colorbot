@@ -1342,6 +1342,13 @@ static LRESULT CALLBACK select_button_proc(HWND hwnd, UINT msg, WPARAM wparam, L
     case CB_GETCURSEL:
         return data ? data->selected : CB_ERR;
 
+    case CB_GETLBTEXT:
+        if (!data || static_cast<int>(wparam) < 0 || static_cast<int>(wparam) >= static_cast<int>(data->items.size())) {
+            return CB_ERR;
+        }
+        lstrcpyW(reinterpret_cast<wchar_t*>(lparam), data->items[static_cast<int>(wparam)].c_str());
+        return static_cast<LRESULT>(data->items[static_cast<int>(wparam)].size());
+
     case CB_SETCURSEL:
         if (!data) return CB_ERR;
         if (static_cast<int>(wparam) >= 0 && static_cast<int>(wparam) < static_cast<int>(data->items.size())) {
@@ -1364,6 +1371,10 @@ static LRESULT CALLBACK select_button_proc(HWND hwnd, UINT msg, WPARAM wparam, L
         break;
 
     case WM_LBUTTONDOWN:
+        show_select_popup(hwnd);
+        return 0;
+
+    case WM_LBUTTONUP:
         show_select_popup(hwnd);
         return 0;
 
@@ -1518,13 +1529,23 @@ static void draw_combo_item(const DRAWITEMSTRUCT* item) {
     }
 
     wchar_t text[128]{};
-    UINT item_id = item->itemID;
-    if (button || item_id == static_cast<UINT>(-1)) {
-        const LRESULT cur = SendMessageW(item->hwndItem, CB_GETCURSEL, 0, 0);
-        item_id = cur == CB_ERR ? static_cast<UINT>(-1) : static_cast<UINT>(cur);
-    }
-    if (item_id != static_cast<UINT>(-1)) {
-        SendMessageW(item->hwndItem, CB_GETLBTEXT, item_id, reinterpret_cast<LPARAM>(text));
+    SelectData* data = select_data(item->hwndItem);
+    if (data) {
+        const int item_id = button || item->itemID == static_cast<UINT>(-1)
+                                ? data->selected
+                                : static_cast<int>(item->itemID);
+        if (item_id >= 0 && item_id < static_cast<int>(data->items.size())) {
+            lstrcpynW(text, data->items[item_id].c_str(), 128);
+        }
+    } else {
+        UINT item_id = item->itemID;
+        if (item_id == static_cast<UINT>(-1)) {
+            const LRESULT cur = SendMessageW(item->hwndItem, CB_GETCURSEL, 0, 0);
+            item_id = cur == CB_ERR ? static_cast<UINT>(-1) : static_cast<UINT>(cur);
+        }
+        if (item_id != static_cast<UINT>(-1)) {
+            SendMessageW(item->hwndItem, CB_GETLBTEXT, item_id, reinterpret_cast<LPARAM>(text));
+        }
     }
 
     RECT text_rect = r;
