@@ -1060,6 +1060,12 @@ static void notify_select_change(HWND hwnd) {
 static void choose_popup_item();
 
 static LRESULT CALLBACK popup_list_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+    if (msg == WM_ERASEBKGND) {
+        RECT r{};
+        GetClientRect(hwnd, &r);
+        FillRect(reinterpret_cast<HDC>(wparam), &r, g_input_brush);
+        return 1;
+    }
     if (msg == WM_KEYDOWN && wparam == VK_ESCAPE) {
         close_select_popup();
         return 0;
@@ -1075,6 +1081,10 @@ static LRESULT CALLBACK popup_list_proc(HWND hwnd, UINT msg, WPARAM wparam, LPAR
 static void show_select_popup(HWND hwnd) {
     SelectData* data = select_data(hwnd);
     if (!data || data->items.empty() || !IsWindowEnabled(hwnd)) return;
+    if (g_popup_owner == hwnd) {
+        close_select_popup();
+        return;
+    }
 
     close_select_popup();
 
@@ -1099,7 +1109,8 @@ static void show_select_popup(HWND hwnd) {
 
     g_popup_owner = hwnd;
     g_popup_list = CreateWindowExW(0, L"LISTBOX", L"",
-                                   WS_CHILD | WS_VISIBLE | WS_BORDER | LBS_NOTIFY | LBS_HASSTRINGS,
+                                   WS_CHILD | WS_VISIBLE | WS_BORDER | WS_CLIPSIBLINGS |
+                                       LBS_NOTIFY | LBS_HASSTRINGS | LBS_OWNERDRAWFIXED | LBS_NOINTEGRALHEIGHT,
                                    top_left.x, popup_y, width, height,
                                    parent, reinterpret_cast<HMENU>(IDC_SELECT_POPUP),
                                    GetModuleHandleW(nullptr), nullptr);
@@ -1314,6 +1325,28 @@ static void draw_owner_button(const DRAWITEMSTRUCT* item) {
     draw_text(dc, text, r, g_font_bold, text_color, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
 }
 
+static void draw_popup_item(const DRAWITEMSTRUCT* item) {
+    if (item->itemID == static_cast<UINT>(-1)) return;
+
+    HDC dc = item->hDC;
+    RECT r = item->rcItem;
+    const bool selected = (item->itemState & ODS_SELECTED) != 0;
+    FillRect(dc, &r, g_input_brush);
+    if (selected) {
+        HBRUSH brush = CreateSolidBrush(RGB(32, 25, 43));
+        FillRect(dc, &r, brush);
+        DeleteObject(brush);
+    }
+
+    wchar_t text[128]{};
+    SendMessageW(item->hwndItem, LB_GETTEXT, item->itemID, reinterpret_cast<LPARAM>(text));
+    RECT text_rect = r;
+    text_rect.left += 12;
+    text_rect.right -= 12;
+    draw_text(dc, text, text_rect, g_font, selected ? COLOR_ACCENT_HOVER : COLOR_TEXT,
+              DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+}
+
 static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
     case WM_CREATE:
@@ -1401,7 +1434,18 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         return HTCLIENT;
     }
 
+    case WM_MEASUREITEM:
+        if (wparam == IDC_SELECT_POPUP) {
+            reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->itemHeight = 30;
+            return TRUE;
+        }
+        break;
+
     case WM_DRAWITEM:
+        if (wparam == IDC_SELECT_POPUP) {
+            draw_popup_item(reinterpret_cast<const DRAWITEMSTRUCT*>(lparam));
+            return TRUE;
+        }
         draw_owner_button(reinterpret_cast<const DRAWITEMSTRUCT*>(lparam));
         return TRUE;
 
