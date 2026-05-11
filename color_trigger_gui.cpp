@@ -188,17 +188,6 @@ static const wchar_t SELECT_CLASS_NAME[] = L"MinhanSelect";
 static const wchar_t POPUP_CLASS_NAME[] = L"MinhanSelectPopup";
 static std::vector<RECT> g_input_frames;
 
-struct SelectData {
-    std::vector<std::wstring> items;
-    int selected = -1;
-    bool open = false;
-    RECT closed_rect{};
-    int closed_height = 38;
-    WNDPROC old_proc = nullptr;
-};
-
-static LRESULT CALLBACK select_button_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
-
 static constexpr COLORREF COLOR_BG = RGB(9, 9, 11);
 static constexpr COLORREF COLOR_SURFACE = RGB(17, 19, 24);
 static constexpr COLORREF COLOR_ELEVATED = RGB(24, 27, 34);
@@ -896,14 +885,11 @@ static HWND add_edit(HWND parent, int id, int x, int y, int w, int h, const wcha
 }
 
 static HWND add_combo(HWND parent, int id, int x, int y, int w, int h) {
-    HWND hwnd = CreateWindowExW(0, L"BUTTON", L"",
-                                WS_CHILD | WS_VISIBLE | BS_OWNERDRAW | BS_NOTIFY,
-                                x, y, w, 38, parent, reinterpret_cast<HMENU>(id),
+    HWND hwnd = CreateWindowExW(0, L"COMBOBOX", L"",
+                                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED |
+                                    CBS_HASSTRINGS | CBS_NOINTEGRALHEIGHT | WS_VSCROLL,
+                                x, y, w, h, parent, reinterpret_cast<HMENU>(id),
                                 GetModuleHandleW(nullptr), nullptr);
-    SelectData* data = new SelectData();
-    SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(data));
-    data->old_proc = reinterpret_cast<WNDPROC>(
-        SetWindowLongPtrW(hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(select_button_proc)));
     apply_font(hwnd, g_font);
     return hwnd;
 }
@@ -920,7 +906,7 @@ static void create_controls(HWND hwnd) {
     add_button(hwnd, IDC_TITLE_CLOSE, L"x", 644, 8, 34, 28);
 
     add_label(hwnd, L"Color", 44, 110, 90, 20);
-    g_mode = add_combo(hwnd, IDC_MODE, 44, 134, 248, 190);
+    g_mode = add_combo(hwnd, IDC_MODE, 44, 134, 248, 150);
     combo_add(g_mode, L"Yellow outline");
     combo_add(g_mode, L"Red outline");
     combo_add(g_mode, L"Purple outline");
@@ -935,7 +921,7 @@ static void create_controls(HWND hwnd) {
     g_key = add_edit(hwnd, IDC_KEY, 448, 134, 144, 38, L"F");
 
     add_label(hwnd, L"Action", 44, 190, 100, 20);
-    g_action = add_combo(hwnd, IDC_ACTION, 44, 214, 248, 120);
+    g_action = add_combo(hwnd, IDC_ACTION, 44, 214, 248, 110);
     combo_add(g_action, L"Tap repeatedly");
     combo_add(g_action, L"Hold while visible");
     SendMessageW(g_action, CB_SETCURSEL, 0, 0);
@@ -949,7 +935,7 @@ static void create_controls(HWND hwnd) {
     add_label(hwnd, L"ms", 142, 304, 35, 18);
 
     add_label(hwnd, L"Detection", 200, 270, 95, 20);
-    g_sensitivity = add_combo(hwnd, IDC_SENSITIVITY, 200, 294, 150, 150);
+    g_sensitivity = add_combo(hwnd, IDC_SENSITIVITY, 200, 294, 150, 110);
     combo_add(g_sensitivity, L"Strict");
     combo_add(g_sensitivity, L"Normal");
     combo_add(g_sensitivity, L"Loose");
@@ -967,7 +953,7 @@ static void create_controls(HWND hwnd) {
     g_pick_color = add_button(hwnd, IDC_PICK_COLOR, L"PICK", 304, 374, 86, 38);
 
     g_config_name = add_edit(hwnd, IDC_CONFIG_NAME, 44, 452, 150, 38, L"default");
-    g_config_list = add_combo(hwnd, IDC_CONFIG_LIST, 210, 452, 180, 190);
+    g_config_list = add_combo(hwnd, IDC_CONFIG_LIST, 210, 452, 180, 120);
     add_button(hwnd, IDC_SAVE_CONFIG, L"SAVE", 406, 452, 64, 38);
     add_button(hwnd, IDC_LOAD_CONFIG, L"LOAD", 486, 452, 64, 38);
     add_button(hwnd, IDC_DELETE_CONFIG, L"DEL", 566, 452, 62, 38);
@@ -1050,15 +1036,28 @@ static void draw_text(HDC dc, const wchar_t* text, RECT rect, HFONT font, COLORR
     SelectObject(dc, old_font);
 }
 
+struct SelectData {
+    std::vector<std::wstring> items;
+    int selected = -1;
+    bool open = false;
+    RECT closed_rect{};
+    int closed_height = 38;
+};
+
 static SelectData* select_data(HWND hwnd) {
     return reinterpret_cast<SelectData*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
 }
 
 static void close_select_popup() {
-    if (g_popup_list) {
-        ReleaseCapture();
-        DestroyWindow(g_popup_list);
-        g_popup_list = nullptr;
+    if (!g_popup_owner) return;
+    SelectData* data = select_data(g_popup_owner);
+    if (data) {
+        data->open = false;
+        SetWindowPos(g_popup_owner, HWND_TOP, data->closed_rect.left, data->closed_rect.top,
+                     data->closed_rect.right - data->closed_rect.left,
+                     data->closed_rect.bottom - data->closed_rect.top,
+                     SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        InvalidateRect(g_popup_owner, nullptr, TRUE);
     }
     g_popup_owner = nullptr;
 }
@@ -1143,30 +1142,25 @@ static void show_select_popup(HWND hwnd) {
 
     close_select_popup();
 
+    HWND parent = GetParent(hwnd);
     RECT select_rect{};
     GetWindowRect(hwnd, &select_rect);
+    POINT top_left{select_rect.left, select_rect.top};
+    POINT bottom_right{select_rect.right, select_rect.bottom};
+    ScreenToClient(parent, &top_left);
+    ScreenToClient(parent, &bottom_right);
 
     const int row_h = 30;
     const int rows = clamp_int(static_cast<int>(data->items.size()), 1, 5);
-    const int width = select_rect.right - select_rect.left;
-    const int height = rows * row_h + 2;
-    RECT work_area{};
-    SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0);
-    int popup_y = select_rect.bottom + 4;
-    if (popup_y + height > work_area.bottom - 8) popup_y = select_rect.top - height - 4;
-
+    const int width = bottom_right.x - top_left.x;
+    data->closed_rect = RECT{top_left.x, top_left.y, bottom_right.x, bottom_right.y};
+    data->closed_height = bottom_right.y - top_left.y;
+    data->open = true;
     g_popup_owner = hwnd;
-    g_popup_list = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, POPUP_CLASS_NAME, L"",
-                                   WS_POPUP, select_rect.left, popup_y, width, height,
-                                   GetParent(hwnd), reinterpret_cast<HMENU>(IDC_SELECT_POPUP),
-                                   GetModuleHandleW(nullptr), nullptr);
-    if (!g_popup_list) {
-        g_popup_owner = nullptr;
-        return;
-    }
-    SetWindowPos(g_popup_list, HWND_TOPMOST, select_rect.left, popup_y, width, height, SWP_SHOWWINDOW);
-    SetFocus(g_popup_list);
-    SetCapture(g_popup_list);
+    SetWindowPos(hwnd, HWND_TOP, top_left.x, top_left.y, width,
+                 data->closed_height + 4 + rows * row_h + 2,
+                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    InvalidateRect(hwnd, nullptr, TRUE);
 }
 
 static LRESULT CALLBACK select_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -1199,13 +1193,6 @@ static LRESULT CALLBACK select_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
 
     case CB_GETCURSEL:
         return data ? data->selected : CB_ERR;
-
-    case CB_GETLBTEXT:
-        if (!data || static_cast<int>(wparam) < 0 || static_cast<int>(wparam) >= static_cast<int>(data->items.size())) {
-            return CB_ERR;
-        }
-        lstrcpyW(reinterpret_cast<wchar_t*>(lparam), data->items[static_cast<int>(wparam)].c_str());
-        return static_cast<LRESULT>(data->items[static_cast<int>(wparam)].size());
 
     case CB_SETCURSEL:
         if (!data) return CB_ERR;
@@ -1293,53 +1280,6 @@ static LRESULT CALLBACK select_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
     }
 
     return DefWindowProcW(hwnd, msg, wparam, lparam);
-}
-
-static LRESULT CALLBACK select_button_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-    SelectData* data = select_data(hwnd);
-
-    switch (msg) {
-    case CB_ADDSTRING:
-        if (!data) return CB_ERR;
-        data->items.push_back(reinterpret_cast<const wchar_t*>(lparam));
-        if (data->selected < 0) data->selected = 0;
-        InvalidateRect(hwnd, nullptr, TRUE);
-        return static_cast<LRESULT>(data->items.size() - 1);
-
-    case CB_RESETCONTENT:
-        if (!data) return 0;
-        data->items.clear();
-        data->selected = -1;
-        InvalidateRect(hwnd, nullptr, TRUE);
-        return 0;
-
-    case CB_GETCURSEL:
-        return data ? data->selected : CB_ERR;
-
-    case CB_SETCURSEL:
-        if (!data) return CB_ERR;
-        if (static_cast<int>(wparam) >= 0 && static_cast<int>(wparam) < static_cast<int>(data->items.size())) {
-            data->selected = static_cast<int>(wparam);
-            InvalidateRect(hwnd, nullptr, TRUE);
-            return data->selected;
-        }
-        data->selected = -1;
-        InvalidateRect(hwnd, nullptr, TRUE);
-        return CB_ERR;
-
-    case WM_NCDESTROY:
-        if (g_popup_owner == hwnd) close_select_popup();
-        if (data) {
-            WNDPROC old_proc = data->old_proc;
-            delete data;
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-            return CallWindowProcW(old_proc, hwnd, msg, wparam, lparam);
-        }
-        break;
-    }
-
-    return data && data->old_proc ? CallWindowProcW(data->old_proc, hwnd, msg, wparam, lparam)
-                                  : DefWindowProcW(hwnd, msg, wparam, lparam);
 }
 
 static void paint_window(HWND hwnd) {
@@ -1466,18 +1406,12 @@ static void draw_combo_item(const DRAWITEMSTRUCT* item) {
     const bool selected = (item->itemState & ODS_SELECTED) != 0;
     const bool disabled = (item->itemState & ODS_DISABLED) != 0;
     const bool focus = (item->itemState & ODS_FOCUS) != 0;
-    const bool button = item->CtlType == ODT_BUTTON;
 
-    if (button) {
-        fill_round(dc, r, 10, disabled ? RGB(16, 17, 22) : COLOR_INPUT);
-        stroke_round(dc, r, 10, disabled ? RGB(30, 34, 42) : COLOR_INPUT_BORDER);
-    } else {
-        HBRUSH base = CreateSolidBrush(COLOR_INPUT);
-        FillRect(dc, &r, base);
-        DeleteObject(base);
-    }
+    HBRUSH base = CreateSolidBrush(COLOR_INPUT);
+    FillRect(dc, &r, base);
+    DeleteObject(base);
 
-    if (!button && selected) {
+    if (selected) {
         HBRUSH brush = CreateSolidBrush(RGB(32, 25, 43));
         FillRect(dc, &r, brush);
         DeleteObject(brush);
@@ -1485,8 +1419,8 @@ static void draw_combo_item(const DRAWITEMSTRUCT* item) {
 
     wchar_t text[128]{};
     UINT item_id = item->itemID;
-    if (button || item_id == static_cast<UINT>(-1)) {
-        const LRESULT cur = SendMessageW(item->hwndItem, CB_GETCURSEL, 0, 0);
+    if (item_id == static_cast<UINT>(-1)) {
+        LRESULT cur = SendMessageW(item->hwndItem, CB_GETCURSEL, 0, 0);
         item_id = cur == CB_ERR ? static_cast<UINT>(-1) : static_cast<UINT>(cur);
     }
     if (item_id != static_cast<UINT>(-1)) {
@@ -1494,23 +1428,11 @@ static void draw_combo_item(const DRAWITEMSTRUCT* item) {
     }
 
     RECT text_rect = r;
-    text_rect.left += button ? 14 : 10;
-    text_rect.right -= button ? 42 : 10;
+    text_rect.left += 10;
+    text_rect.right -= 10;
     draw_text(dc, text, text_rect, g_font,
               disabled ? COLOR_MUTED : (selected || focus ? COLOR_ACCENT_HOVER : COLOR_TEXT),
               DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
-
-    if (button) {
-        HPEN pen = CreatePen(PS_SOLID, 2, disabled ? COLOR_MUTED : COLOR_TEXT);
-        HGDIOBJ old_pen = SelectObject(dc, pen);
-        const int cx = r.right - 22;
-        const int cy = (r.bottom - r.top) / 2;
-        MoveToEx(dc, cx - 5, cy - 2, nullptr);
-        LineTo(dc, cx, cy + 4);
-        LineTo(dc, cx + 5, cy - 2);
-        SelectObject(dc, old_pen);
-        DeleteObject(pen);
-    }
 }
 
 static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
@@ -1558,10 +1480,6 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
             delete_selected_config();
             return 0;
         case IDC_CONFIG_LIST:
-            if (HIWORD(wparam) == BN_CLICKED) {
-                show_select_popup(reinterpret_cast<HWND>(lparam));
-                return 0;
-            }
             if (HIWORD(wparam) == CBN_SELCHANGE) {
                 int index = combo_index(g_config_list);
                 if (index >= 0 && index < static_cast<int>(g_saved_configs.size())) {
@@ -1570,24 +1488,10 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
             }
             return 0;
         case IDC_MODE:
-            if (HIWORD(wparam) == BN_CLICKED) {
-                show_select_popup(reinterpret_cast<HWND>(lparam));
-                return 0;
-            }
             if (HIWORD(wparam) == CBN_SELCHANGE) refresh_custom_controls();
             return 0;
         case IDC_ACTION:
-            if (HIWORD(wparam) == BN_CLICKED) {
-                show_select_popup(reinterpret_cast<HWND>(lparam));
-                return 0;
-            }
             if (HIWORD(wparam) == CBN_SELCHANGE) refresh_action_controls();
-            return 0;
-        case IDC_SENSITIVITY:
-            if (HIWORD(wparam) == BN_CLICKED) {
-                show_select_popup(reinterpret_cast<HWND>(lparam));
-                return 0;
-            }
             return 0;
         case IDC_CUSTOM_R:
         case IDC_CUSTOM_G:
