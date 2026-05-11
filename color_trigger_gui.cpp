@@ -886,7 +886,8 @@ static HWND add_edit(HWND parent, int id, int x, int y, int w, int h, const wcha
 
 static HWND add_combo(HWND parent, int id, int x, int y, int w, int h) {
     HWND hwnd = CreateWindowExW(0, L"COMBOBOX", L"",
-                                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
+                                WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | CBS_OWNERDRAWFIXED |
+                                    CBS_HASSTRINGS | CBS_NOINTEGRALHEIGHT | WS_VSCROLL,
                                 x, y, w, h, parent, reinterpret_cast<HMENU>(id),
                                 GetModuleHandleW(nullptr), nullptr);
     apply_font(hwnd, g_font);
@@ -1395,6 +1396,45 @@ static void draw_popup_item(const DRAWITEMSTRUCT* item) {
               DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
 }
 
+static bool is_combo_control_id(UINT id) {
+    return id == IDC_MODE || id == IDC_ACTION || id == IDC_SENSITIVITY || id == IDC_CONFIG_LIST;
+}
+
+static void draw_combo_item(const DRAWITEMSTRUCT* item) {
+    HDC dc = item->hDC;
+    RECT r = item->rcItem;
+    const bool selected = (item->itemState & ODS_SELECTED) != 0;
+    const bool disabled = (item->itemState & ODS_DISABLED) != 0;
+    const bool focus = (item->itemState & ODS_FOCUS) != 0;
+
+    HBRUSH base = CreateSolidBrush(COLOR_INPUT);
+    FillRect(dc, &r, base);
+    DeleteObject(base);
+
+    if (selected) {
+        HBRUSH brush = CreateSolidBrush(RGB(32, 25, 43));
+        FillRect(dc, &r, brush);
+        DeleteObject(brush);
+    }
+
+    wchar_t text[128]{};
+    UINT item_id = item->itemID;
+    if (item_id == static_cast<UINT>(-1)) {
+        LRESULT cur = SendMessageW(item->hwndItem, CB_GETCURSEL, 0, 0);
+        item_id = cur == CB_ERR ? static_cast<UINT>(-1) : static_cast<UINT>(cur);
+    }
+    if (item_id != static_cast<UINT>(-1)) {
+        SendMessageW(item->hwndItem, CB_GETLBTEXT, item_id, reinterpret_cast<LPARAM>(text));
+    }
+
+    RECT text_rect = r;
+    text_rect.left += 10;
+    text_rect.right -= 10;
+    draw_text(dc, text, text_rect, g_font,
+              disabled ? COLOR_MUTED : (selected || focus ? COLOR_ACCENT_HOVER : COLOR_TEXT),
+              DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+}
+
 static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
     case WM_CREATE:
@@ -1477,7 +1517,18 @@ static LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM l
         return HTCLIENT;
     }
 
+    case WM_MEASUREITEM:
+        if (is_combo_control_id(static_cast<UINT>(wparam))) {
+            reinterpret_cast<MEASUREITEMSTRUCT*>(lparam)->itemHeight = 30;
+            return TRUE;
+        }
+        break;
+
     case WM_DRAWITEM:
+        if (is_combo_control_id(static_cast<UINT>(wparam))) {
+            draw_combo_item(reinterpret_cast<const DRAWITEMSTRUCT*>(lparam));
+            return TRUE;
+        }
         draw_owner_button(reinterpret_cast<const DRAWITEMSTRUCT*>(lparam));
         return TRUE;
 
