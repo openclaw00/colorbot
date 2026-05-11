@@ -949,14 +949,13 @@ static void create_controls(HWND hwnd) {
     g_custom_b = add_edit(hwnd, IDC_CUSTOM_B, 212, 374, 70, 38, L"0");
     g_pick_color = add_button(hwnd, IDC_PICK_COLOR, L"PICK", 304, 374, 86, 38);
 
-    g_config_name = add_edit(hwnd, IDC_CONFIG_NAME, 160, 452, 136, 38, L"default");
-    g_config_list = add_combo(hwnd, IDC_CONFIG_LIST, 312, 452, 150, 38);
-    add_button(hwnd, IDC_SAVE_CONFIG, L"SAVE", 480, 452, 58, 38);
-    add_button(hwnd, IDC_LOAD_CONFIG, L"LOAD", 550, 452, 58, 38);
-    add_button(hwnd, IDC_DELETE_CONFIG, L"DEL", 620, 452, 48, 38);
+    g_config_name = add_edit(hwnd, IDC_CONFIG_NAME, 160, 452, 150, 38, L"default");
+    g_config_list = add_combo(hwnd, IDC_CONFIG_LIST, 326, 452, 154, 38);
+    add_button(hwnd, IDC_LOAD_CONFIG, L"LOAD", 496, 452, 64, 38);
+    add_button(hwnd, IDC_DELETE_CONFIG, L"DEL", 576, 452, 52, 38);
 
-    add_button(hwnd, IDC_START, L"START", 32, 510, 292, 46);
-    add_button(hwnd, IDC_STOP, L"STOP", 348, 510, 292, 46);
+    add_button(hwnd, IDC_START, L"START", 20, 510, 302, 46);
+    add_button(hwnd, IDC_STOP, L"STOP", 342, 510, 302, 46);
     EnableWindow(GetDlgItem(hwnd, IDC_STOP), FALSE);
 
     g_status = add_label(hwnd, L"OFF     *     F8 start/stop     *     F9 stop", 194, 566, 330, 20);
