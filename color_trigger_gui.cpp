@@ -1091,27 +1091,23 @@ static void show_select_popup(HWND hwnd) {
     HWND parent = GetParent(hwnd);
     RECT select_rect{};
     GetWindowRect(hwnd, &select_rect);
-    POINT top_left{select_rect.left, select_rect.top};
-    POINT bottom_right{select_rect.right, select_rect.bottom};
-    ScreenToClient(parent, &top_left);
-    ScreenToClient(parent, &bottom_right);
 
     const int row_h = 30;
     const int rows = clamp_int(static_cast<int>(data->items.size()), 1, 5);
-    const int width = bottom_right.x - top_left.x;
+    const int width = select_rect.right - select_rect.left;
     const int height = rows * row_h + 2;
-    RECT parent_rect{};
-    GetClientRect(parent, &parent_rect);
-    int popup_y = bottom_right.y + 4;
-    if (popup_y + height > parent_rect.bottom - 8) {
-        popup_y = top_left.y - height - 4;
+    RECT work_area{};
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &work_area, 0);
+    int popup_y = select_rect.bottom + 4;
+    if (popup_y + height > work_area.bottom - 8) {
+        popup_y = select_rect.top - height - 4;
     }
 
     g_popup_owner = hwnd;
-    g_popup_list = CreateWindowExW(0, L"LISTBOX", L"",
-                                   WS_CHILD | WS_VISIBLE | WS_BORDER | WS_CLIPSIBLINGS |
+    g_popup_list = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_TOPMOST, L"LISTBOX", L"",
+                                   WS_POPUP | WS_BORDER |
                                        LBS_NOTIFY | LBS_HASSTRINGS | LBS_OWNERDRAWFIXED | LBS_NOINTEGRALHEIGHT,
-                                   top_left.x, popup_y, width, height,
+                                   select_rect.left, popup_y, width, height,
                                    parent, reinterpret_cast<HMENU>(IDC_SELECT_POPUP),
                                    GetModuleHandleW(nullptr), nullptr);
     if (!g_popup_list) {
@@ -1126,7 +1122,7 @@ static void show_select_popup(HWND hwnd) {
     SendMessageW(g_popup_list, LB_SETCURSEL, data->selected, 0);
     g_popup_old_proc = reinterpret_cast<WNDPROC>(
         SetWindowLongPtrW(g_popup_list, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(popup_list_proc)));
-    SetWindowPos(g_popup_list, HWND_TOP, top_left.x, popup_y, width, height, SWP_SHOWWINDOW);
+    SetWindowPos(g_popup_list, HWND_TOPMOST, select_rect.left, popup_y, width, height, SWP_SHOWWINDOW);
     SetFocus(g_popup_list);
 }
 
