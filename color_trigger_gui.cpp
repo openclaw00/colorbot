@@ -433,12 +433,31 @@ static WORD parse_key(HWND hwnd) {
 }
 
 static int combo_index(HWND combo) {
+    SelectData* data = reinterpret_cast<SelectData*>(GetWindowLongPtrW(combo, GWLP_USERDATA));
+    if (data) return data->selected < 0 ? 0 : data->selected;
     const LRESULT index = SendMessageW(combo, CB_GETCURSEL, 0, 0);
     return index == CB_ERR ? 0 : static_cast<int>(index);
 }
 
 static void combo_add(HWND combo, const wchar_t* text) {
+    SelectData* data = reinterpret_cast<SelectData*>(GetWindowLongPtrW(combo, GWLP_USERDATA));
+    if (data) {
+        data->items.push_back(text);
+        if (data->selected < 0) data->selected = 0;
+        InvalidateRect(combo, nullptr, TRUE);
+        return;
+    }
     SendMessageW(combo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text));
+}
+
+static void combo_set(HWND combo, int index) {
+    SelectData* data = reinterpret_cast<SelectData*>(GetWindowLongPtrW(combo, GWLP_USERDATA));
+    if (data) {
+        data->selected = (index >= 0 && index < static_cast<int>(data->items.size())) ? index : -1;
+        InvalidateRect(combo, nullptr, TRUE);
+        return;
+    }
+    SendMessageW(combo, CB_SETCURSEL, index, 0);
 }
 
 static void set_sensitivity(Config& cfg) {
@@ -504,9 +523,9 @@ static std::wstring key_name_from_vk(WORD vk) {
 }
 
 static void apply_config_to_ui(const Config& cfg) {
-    SendMessageW(g_mode, CB_SETCURSEL, static_cast<int>(cfg.color_mode), 0);
-    SendMessageW(g_action, CB_SETCURSEL, static_cast<int>(cfg.action_mode), 0);
-    SendMessageW(g_sensitivity, CB_SETCURSEL, static_cast<int>(cfg.sensitivity), 0);
+    combo_set(g_mode, static_cast<int>(cfg.color_mode));
+    combo_set(g_action, static_cast<int>(cfg.action_mode));
+    combo_set(g_sensitivity, static_cast<int>(cfg.sensitivity));
     set_text(g_key, key_name_from_vk(cfg.vk).c_str());
     set_int(g_reaction_ms, cfg.reaction_ms);
     set_int(g_press_interval_ms, cfg.press_interval_ms);
@@ -583,9 +602,9 @@ static std::wstring json_string(const std::string& obj, const char* key) {
 static void refresh_config_list() {
     SendMessageW(g_config_list, CB_RESETCONTENT, 0, 0);
     for (const SavedConfig& saved : g_saved_configs) {
-        SendMessageW(g_config_list, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(saved.name.c_str()));
+        combo_add(g_config_list, saved.name.c_str());
     }
-    if (!g_saved_configs.empty()) SendMessageW(g_config_list, CB_SETCURSEL, 0, 0);
+    if (!g_saved_configs.empty()) combo_set(g_config_list, 0);
 }
 
 static void load_saved_configs() {
@@ -680,7 +699,7 @@ static void save_current_config_named() {
 
     save_saved_configs();
     refresh_config_list();
-    SendMessageW(g_config_list, CB_SETCURSEL, existing, 0);
+    combo_set(g_config_list, existing);
 }
 
 static void load_selected_config() {
@@ -925,7 +944,7 @@ static void create_controls(HWND hwnd) {
     combo_add(g_mode, L"Red outline");
     combo_add(g_mode, L"Purple outline");
     combo_add(g_mode, L"Custom color");
-    SendMessageW(g_mode, CB_SETCURSEL, 0, 0);
+    combo_set(g_mode, 0);
 
     g_preview = CreateWindowExW(0, L"STATIC", L"", WS_CHILD | WS_VISIBLE,
                                 312, 134, 54, 38, hwnd, reinterpret_cast<HMENU>(IDC_PREVIEW),
@@ -938,7 +957,7 @@ static void create_controls(HWND hwnd) {
     g_action = add_combo(hwnd, IDC_ACTION, 44, 214, 248, 120);
     combo_add(g_action, L"Tap repeatedly");
     combo_add(g_action, L"Hold while visible");
-    SendMessageW(g_action, CB_SETCURSEL, 0, 0);
+    combo_set(g_action, 0);
 
     add_label(hwnd, L"Reaction", 448, 190, 100, 20);
     g_reaction_ms = add_edit(hwnd, IDC_REACTION_MS, 448, 214, 80, 38, L"0");
@@ -953,7 +972,7 @@ static void create_controls(HWND hwnd) {
     combo_add(g_sensitivity, L"Strict");
     combo_add(g_sensitivity, L"Normal");
     combo_add(g_sensitivity, L"Loose");
-    SendMessageW(g_sensitivity, CB_SETCURSEL, 1, 0);
+    combo_set(g_sensitivity, 1);
 
     add_label(hwnd, L"Scan box", 448, 270, 100, 20);
     g_box_w = add_edit(hwnd, IDC_BOX_W, 448, 294, 60, 38, L"40");
@@ -1009,7 +1028,7 @@ static void choose_color(HWND hwnd) {
         set_int(g_custom_r, GetRValue(cc.rgbResult));
         set_int(g_custom_g, GetGValue(cc.rgbResult));
         set_int(g_custom_b, GetBValue(cc.rgbResult));
-        SendMessageW(g_mode, CB_SETCURSEL, static_cast<int>(ColorMode::Custom), 0);
+        combo_set(g_mode, static_cast<int>(ColorMode::Custom));
         refresh_custom_controls();
     }
 }
@@ -1094,7 +1113,14 @@ static LRESULT CALLBACK popup_proc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lp
         break;
 
     case WM_LBUTTONDOWN: {
+        RECT r{};
+        GetClientRect(hwnd, &r);
+        const int x = GET_X_LPARAM(lparam);
         const int y = GET_Y_LPARAM(lparam);
+        if (x < 0 || x >= r.right || y < 0 || y >= r.bottom) {
+            close_select_popup();
+            return 0;
+        }
         choose_popup_index(y / 30);
         return 0;
     }
@@ -1336,6 +1362,14 @@ static LRESULT CALLBACK select_button_proc(HWND hwnd, UINT msg, WPARAM wparam, L
             return CallWindowProcW(old_proc, hwnd, msg, wparam, lparam);
         }
         break;
+
+    case WM_LBUTTONDOWN:
+        show_select_popup(hwnd);
+        return 0;
+
+    case WM_SETCURSOR:
+        SetCursor(LoadCursor(nullptr, IDC_HAND));
+        return TRUE;
     }
 
     return data && data->old_proc ? CallWindowProcW(data->old_proc, hwnd, msg, wparam, lparam)
